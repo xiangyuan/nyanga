@@ -49,14 +49,7 @@ function match:CallExpression(node, base, want, tail)
    end
 
    self.ctx.freereg = free
-   if want == MULTIRES then
-      if tail then
-         self.ctx:op_callt(base, narg)
-      else
-         self.ctx:op_call(base, want, narg)
-      end
-      return MULTIRES
-   elseif mres then
+   if mres then
       if tail then
          self.ctx:op_callmt(base, narg - 1)
       else
@@ -70,7 +63,7 @@ function match:CallExpression(node, base, want, tail)
       end
    end
 
-   return base
+   return want == MULTIRES and MULTIRES or base
 end
 
 function match:SendExpression(node, base, want, tail)
@@ -207,9 +200,9 @@ function match:BlockStatement(node)
    end
 end
 function match:DoStatement(node)
-   self.ctx:enter()
+   self:block_enter()
    self:emit(node.body)
-   self.ctx:leave()
+   self:block_leave()
 end
 function match:IfStatement(node, nest, exit)
    local free = self.ctx.freereg
@@ -231,16 +224,17 @@ function match:IfStatement(node, nest, exit)
       end
    end
 
-   self.ctx:enter()
-   self:emit(node.consequent)
-   self.ctx:leave()
+   local block_exit = node.alternate and exit
 
-   if node.alternate then
-      self.ctx:jump(exit)
-   end
+   self:block_enter()
+   self:emit(node.consequent)
+   self:block_leave(block_exit)
+
    self.ctx:here(altl)
    if node.alternate then
+      self:block_enter()
       self:emit(node.alternate, true, exit)
+      self:block_leave()
    end
    if not nest then
       self.ctx:here(exit)
@@ -326,17 +320,17 @@ function match:ParenExpression(node, dest, want)
    return self:emit(node.expressions[1], dest, 1)
 end
 function match:LocalDeclaration(node)
-   local vars = { }
-
-   for i=1, #node.names do
-      local lhs = node.names[i]
-      vars[i] = self.ctx:newvar(lhs.name, self.ctx:nextreg())
-   end
+   local base = self.ctx:nextreg(#node.names)
 
    local want = #node.expressions
    for i=1, #node.expressions do
       local w = want - (i - 1)
-      self:emit(node.expressions[i], vars[i].idx, w)
+      self:emit(node.expressions[i], base + (i - 1), w)
+   end
+
+   for i=1, #node.names do
+      local lhs = node.names[i]
+      self.ctx:newvar(lhs.name, base + (i - 1))
    end
 end
 
@@ -453,6 +447,9 @@ function match:FunctionExpression(node, dest)
       end
    end
    self:emit(node.body)
+   if not self.ctx.explret then
+      self.ctx:op_ret0()
+   end
 
    self.ctx = self.ctx.outer
    self.ctx:op_fnew(dest, func.idx)
@@ -462,7 +459,7 @@ function match:FunctionExpression(node, dest)
 end
 function match:WhileStatement(node)
    local free = self.ctx.freereg
-   self.ctx:enter()
+   self:block_enter()
 
    local loop = util.genid()
    local exit = util.genid()
@@ -489,13 +486,13 @@ function match:WhileStatement(node)
    self:emit(node.body)
    self.ctx:jump(loop)
    self.ctx:here(exit)
-   self.ctx:leave()
+   self:block_leave()
    self.exit = saveexit
    self.ctx.freereg = free
 end
 function match:RepeatStatement(node)
    local free = self.ctx.freereg
-   self.ctx:enter()
+   self:block_enter()
 
    local loop = util.genid()
    local exit = util.genid()
@@ -523,7 +520,7 @@ function match:RepeatStatement(node)
 
    self.ctx:jump(loop)
    self.ctx:here(exit)
-   self.ctx:leave()
+   self:block_leave()
    self.exit = saveexit
    self.ctx.freereg = free
 end
@@ -536,15 +533,16 @@ function match:BreakStatement()
 end
 function match:ForStatement(node)
    local free = self.ctx.freereg
-   self.ctx:enter()
+   self:block_enter(3)
    local init = node.init
-   local base = self.ctx:nextreg(3)
+   local base = self.ctx:nextreg(4)
+   local var_base = base + 3
    local name = init.id.name
 
    local saveexit = self.exit
    self.exit = util.genid()
 
-   self.ctx:newvar(name, base)
+   self.ctx:newvar(name, var_base)
    self:emit(init.value, base, 1)
    self:emit(node.last, base + 1, 1)
    if node.step then
@@ -557,12 +555,12 @@ function match:ForStatement(node)
    self.ctx:op_forl(base, loop)
    self.ctx:here(self.exit)
    self.exit = saveexit
-   self.ctx:leave()
+   self:block_leave()
    self.ctx.freereg = free
 end
 function match:ForInStatement(node)
    local free = self.ctx.freereg
-   self.ctx:enter()
+   self:block_enter(3)
 
    local vars = node.init.names
    local expr = node.iter
@@ -589,7 +587,7 @@ function match:ForInStatement(node)
    self.ctx:op_iterl(iter, ltop)
    self.ctx:here(self.exit)
    self.exit = saveexit
-   self.ctx:leave()
+   self:block_leave()
    self.ctx.freereg = free
 end
 function match:ReturnStatement(node)
@@ -612,10 +610,16 @@ function match:ReturnStatement(node)
       self.ctx:op_ret(base, narg)
    end
    self.ctx.freereg = free
+   if self.ctx:is_root_scope() then
+      self.ctx.explret = true
+   end
 end
 function match:Chunk(tree, name)
    for i=1, #tree.body do
       self:emit(tree.body[i])
+   end
+   if not self.ctx.explret then
+      self.ctx:op_ret0()
    end
 end
 
@@ -623,7 +627,22 @@ local function generate(tree, name)
    local self = { line = 0 }
    self.main = bc.Proto.new(bc.Proto.VARARG)
    self.dump = bc.Dump.new(self.main, name)
-   self.ctx  = self.main
+   self.ctx = self.main
+   self.savereg = { }
+
+   function self:block_enter(used_reg)
+      used_reg = used_reg or 0
+      self.savereg[#self.savereg + 1] = self.ctx.freereg + used_reg
+      self.ctx:enter()
+   end
+
+   function self:block_leave(exit)
+      local free = self.savereg[#self.savereg]
+      self.savereg[#self.savereg] = nil
+      self.ctx:close_block_uvals(free, exit)
+      self.ctx:leave()
+   end
+
    function self:emit(node, ...)
       if type(node) ~= "table" then
          error("not a table: "..tostring(node))
