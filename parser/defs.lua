@@ -332,8 +332,7 @@ end
 local op_info = {
    ["or"]  = { 1, 'L' },
    ["and"] = { 2, 'L' },
-   ["~"]   = { 3, 'L' },
-   ["~<"]  = { 3, 'L' },
+
    ["|"]   = { 4, 'L' },
    ["^"]   = { 5, 'L' },
    ["&"]   = { 6, 'L' },
@@ -353,32 +352,48 @@ local op_info = {
    [">>"]  = { 11, 'L' },
    [">>>"] = { 11, 'L' },
 
-   ["-"]   = { 12, 'L' },
    ["+"]   = { 12, 'L' },
+   ["-"]   = { 12, 'L' },
    [".."]  = { 12, 'R' },
 
    ["*"]   = { 13, 'L' },
    ["/"]   = { 13, 'L' },
    ["%"]   = { 13, 'L' },
 
-   ["**"]  = { 14, 'R' },
+   ["~_"]  = { 14, 'R' },
+   ["-_"]  = { 14, 'R' },
+   ["+_"]  = { 14, 'R' },
+   ["!_"]  = { 14, 'R' },
+
+   ["not_"]    = { 14, 'R' },
+   ["typeof_"] = { 14, 'R' },
+
+   ["**"]  = { 15, 'R' },
+   ["#_"]  = { 16, 'R' },
 }
 
 local shift = table.remove
 
-local function fold_infix(exp, lhs, min)
+local function debug(t)
+   return (string.gsub(util.dump(t), "%s+", " "))
+end
+
+local function fold_expr(exp, min)
+   local lhs = shift(exp, 1)
+   if type(lhs) == 'table' and lhs.type == 'UnaryExpression' then
+      local op   = lhs.operator..'_'
+      local info = op_info[op]
+      table.insert(exp, 1, lhs.argument)
+      lhs.argument = fold_expr(exp, info[1])
+   end
    while op_info[exp[1]] ~= nil and op_info[exp[1]][1] >= min do
-      local op   = shift(exp, 1)
-      local rhs  = shift(exp, 1)
-      while op_info[exp[1]] ~= nil do
-         local info = op_info[exp[1]]
-         local prec, assoc = info[1], info[2]
-         if prec > op_info[op][1] or (assoc == 'R' and prec == op_info[op][1]) then
-            rhs = fold_infix(exp, rhs, prec)
-         else
-            break
-         end
+      local op = shift(exp, 1)
+      local info = op_info[op]
+      local prec, assoc = info[1], info[2]
+      if assoc == 'L' then
+         prec = prec + 1
       end
+      local rhs = fold_expr(exp, prec)
       if op == "or" or op == "and" then
          lhs = defs.logicalExpr(op, lhs, rhs)
       else
@@ -389,7 +404,7 @@ local function fold_infix(exp, lhs, min)
 end
 
 function defs.infixExpr(exp)
-   return fold_infix(exp, shift(exp, 1), 0)
+   return fold_expr(exp, 0)
 end
 
 return defs
