@@ -470,6 +470,11 @@ Available options are:\
   -s      \tUse the Lua source generator backend.\
   --      \tStop handling options."
 local function runopt(args)
+   if #args == 0 then
+      print(string.format(usage, arg[0]))
+      os.exit()
+   end
+
    local opts = { }
    local i = 0
    repeat
@@ -481,7 +486,7 @@ local function runopt(args)
       elseif a == "-o" then
          i = i + 1
          opts['-o'] = args[i]
-      elseif a == "-h" then
+      elseif a == "-h" or a == "-?" then
          print(string.format(usage, arg[0]))
          os.exit()
       elseif string.sub(a, 1, 1) == '-' then
@@ -496,6 +501,8 @@ local function runopt(args)
    if opts['-e'] then
       code = opts['-e']
       name = code
+   elseif opts['--'] then
+      code = io.stdin:read('*a')
    else
       if not opts[1] then
          error("no chunk or script file provided")
