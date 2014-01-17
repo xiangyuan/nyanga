@@ -280,6 +280,12 @@ local String = class("String", Object, function(self, super)
          value = function(self)
             return self
          end
+      },
+      sub = {
+         value = string.sub
+      },
+      gsub = {
+         value = string.gsub
       }
    })
 end)

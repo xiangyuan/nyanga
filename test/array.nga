@@ -5,7 +5,9 @@ a.map = function(self, f)
    for i=0, a.length - 1 do
       _a[_a.length] = f(a[i])
    end
-   return a
+   return _a
 end
 
-a.map _ => print(_)
+a.map (_) => print(_)
+
+print #a == a.length

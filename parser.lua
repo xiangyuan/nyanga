@@ -11,7 +11,7 @@ local patt = [[
 
    close    <- ']' =eq ']' / . close
 
-   lcomment <- (!%nl %s)* "--" (!%nl .)* %nl
+   lcomment <- "--" (!%nl .)* %nl
    bcomment <- ('--[' {:eq: '='* :} '[' <close>)
    comment  <- <bcomment> / <lcomment>
    idsafe   <- !(%alnum / "_")
@@ -32,7 +32,7 @@ local patt = [[
       / "repeat" / "until"
    ) <idsafe>
 
-   sep <- <bcomment>? (%nl / ";" / &"}" / <lcomment>) / %s <sep>?
+   sep <- <bcomment>? (%nl / ";" / <lcomment>) / %s <sep>?
 
    escape <- {~ ('\' (%digit^3 / .)) -> escape ~}
 
@@ -96,7 +96,7 @@ local patt = [[
    ) -> exportDecl
 
    import_stmt <- (
-      "import" <idsafe> s {| {"*"} / "{" s <ident> (s "," s <ident>)* s "}" |} s
+      "import" <idsafe> s {| {"*"} / <ident> (s "," s <ident>)* |} s
       "from" <idsafe> s <string>
    ) -> importStmt
 
