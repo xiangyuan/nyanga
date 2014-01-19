@@ -186,6 +186,31 @@ end
 function Array.__members__:join(sep)
    return table.concat({ Array.__spread(self) }, sep)
 end
+
+do
+   local gaps = {
+      1391376, 463792, 198768, 86961, 33936, 13776,
+      4592, 1968, 861, 336, 112, 48, 21, 7, 3, 1
+   }
+   local less = function(a, b) return a < b end
+   function Array.__members__:sort(before, n)
+      n = n or self.length
+      before = before or less
+      for _, gap in ipairs(gaps) do
+         for i = gap, n - 1 do
+           local v = self[i]
+           for j = i - gap, 0, -gap do
+             local tv = self[j]
+             if not before(v, tv) then break end
+             self[i] = tv
+             i = j
+           end
+           self[i] = v
+         end
+       end
+       return self
+   end
+end
 function Array.__spread(a)
    return unpack(a, 0, a.length - 1)
 end
