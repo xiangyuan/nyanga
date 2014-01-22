@@ -167,7 +167,11 @@ function match:UpdateExpression(node)
    return B.assignmentExpression({
       self:get(node.left)
    }, {
-      B.binaryExpression(oper, self:get(node.left), self:get(node.right))
+      match.BinaryExpression(self, {
+         operator = oper,
+         left     = node.left,
+         right    = node.right
+      })
    })
 end
 function match:MemberExpression(node)
@@ -584,6 +588,17 @@ function match:WhileStatement(node)
    }
    self.loop = save
    return B.whileStatement(self:get(node.test), body)
+end
+function match:RepeatStatement(node)
+   local loop = B.identifier(util.genid())
+   local save = self.loop
+   self.loop = loop
+   local body = B.blockStatement{
+      self:get(node.body);
+      B.labelStatement(loop);
+   }
+   self.loop = save
+   return B.repeatStatement(self:get(node.test), body)
 end
 function match:ForStatement(node)
    local loop = B.identifier(util.genid())

@@ -196,7 +196,8 @@ do
    function Array.__members__:sort(before, n)
       n = n or self.length
       before = before or less
-      for _, gap in ipairs(gaps) do
+      for i=1, #gaps do
+         local gap = gaps[i]
          for i = gap, n - 1 do
            local v = self[i]
            for j = i - gap, 0, -gap do
