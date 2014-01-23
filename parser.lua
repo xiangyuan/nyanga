@@ -6,10 +6,10 @@ lpeg.setmaxstack(1024)
 
 local patt = [[
    chunk  <- {|
-      s (<main_stmt> (<sep> s <main_stmt>)* <sep>?)? s (!. / '' => error)
+      s (<main_stmt> (<sep> s <main_stmt>)* <sep>?)? s (!. / %1 => error)
    |} -> chunk
 
-   close    <- ']' =eq ']' / . close
+   close    <- ']' =eq ']' / . <close>
 
    lcomment <- "--" (!%nl .)* %nl
    bcomment <- ('--[' {:eq: '='* :} '[' <close>)
@@ -28,7 +28,7 @@ local patt = [[
       / "yield" / "break" / "continue" / "not" / "throw"
       / "while" / "do" / "for" / "in" / "of" / "and" / "or"
       / "super" / "import" / "export" / "try" / "catch" / "finally"
-      / "if" / "elseif" / "else" / "then" / "is" / "typeof"
+      / "if" / "elseif" / "else" / "then" / "is"
       / "repeat" / "until"
    ) <idsafe>
 
@@ -38,7 +38,6 @@ local patt = [[
 
    astring <- "'" {~ (<escape> / {!"'" .})* ~} "'"
    qstring <- '"' {~ (<escape> / {!'"' .})* ~} '"'
-   lstring <- ('[' {:eq: '='* :} '[' <close>)
 
    special <- "\n" "\$" / "\\" / "\" .
 
@@ -52,7 +51,7 @@ local patt = [[
       "${" s <expr> s "}"
    ) -> rawExpr
 
-   string  <- <qstring> / <astring> / <lstring>
+   string  <- <qstring> / <astring>
 
    hexnum <- "-"? "0x" %xdigit+
 
@@ -77,7 +76,7 @@ local patt = [[
    main_stmt <- (
         <module_decl>
       / <import_stmt>
-      / <export_decl>
+      / <export_stmt>
       / <stmt>
    )
 
@@ -88,12 +87,12 @@ local patt = [[
    module_decl <- (
       "module" <idsafe> s <ident> s
          {| (<main_stmt> (<sep> s <main_stmt>)*)? |} s
-      <end>
+      (<end> / %1 => error)
    ) -> moduleDecl
 
-   export_decl <- (
-      "export" <idsafe> s (<decl_stmt> / <module_decl>)
-   ) -> exportDecl
+   export_stmt <- (
+      "export" <idsafe> s {| <name_list> |}
+   ) -> exportStmt
 
    import_stmt <- (
       "import" <idsafe> s {| {"*"} / <ident> (s "," s <ident>)* |} s
@@ -197,14 +196,14 @@ local patt = [[
 
    func_expr <- (
       "function" <idsafe> s <func_head> s <func_body>
-      / (<func_head> / {| |}) s "=>" s <func_body>
+      / (<func_head> / {| |}) s "=>" s (<expr> / <func_body>)
    ) -> funcExpr
 
-   func_body <- <block_stmt> s <end> / <expr>
+   func_body <- <block_stmt> s (<end> / %1 => error)
 
    coro_expr <- (
       "function*" s <func_head> s <func_body>
-      / "*" <func_head> s "=>" s <func_body>
+      / "*" <func_head> s "=>" s (<expr> / <func_body>)
    ) -> coroExpr
 
    coro_decl <- (
@@ -260,8 +259,8 @@ local patt = [[
    if_stmt <- (
       "if" <idsafe> s <expr> s "then" <idsafe> s <block_stmt> s (
            "else" <if_stmt>
-         / "else" <idsafe> s <block_stmt> s <end>
-         / <end>
+         / "else" <idsafe> s <block_stmt> s (<end> / %1 => error)
+         / (<end> / %1 => error)
       )
    ) -> ifStmt
 
@@ -345,9 +344,9 @@ local patt = [[
 
    postfix_tail <- {|
       s { "." } s <ident>
-      / { "::" } s (<ident> / '' => error)
-      / { "[" } s <expr> s ("]" / '' => error)
-      / { "(" } s {| <expr_list>? |} s (")" / '' => error)
+      / { "::" } s (<ident> / %1 => error)
+      / { "[" } s <expr> s ("]" / %1 => error)
+      / { "(" } s {| <expr_list>? |} s (")" / %1 => error)
       / {~ HS -> "(" ~} {| !<binop> <expr_list> |}
    |}
 
@@ -361,7 +360,7 @@ local patt = [[
    member_tail <- {|
       s { "." } s <ident>
       / { "::" } s <ident>
-      / { "[" } s <expr> s ("]" / '' => error)
+      / { "[" } s <expr> s ("]" / %1 => error)
    |}
 
    assop <- {
@@ -395,8 +394,7 @@ local patt = [[
    |} / <ident>) -> tableMember
 
    comp_expr <- (
-      "[" s {| <comp_block>+ |}
-      "yield" <idsafe> s <expr> s "]"
+      "[" s <expr> {| (s <comp_block>)+ |} s "]"
    ) -> compExpr
 
    comp_block <- (
@@ -410,8 +408,8 @@ local patt = [[
 ]]
 
 local grammar = re.compile(patt, defs)
-local function parse(src)
-   return grammar:match(src)
+local function parse(src, ...)
+   return grammar:match(src, nil, ...)
 end
 
 return {

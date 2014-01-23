@@ -4,7 +4,7 @@ local generator   = require('generator')
 local util        = require('util')
 
 local function compile(src, name, opts)
-   local srctree = parser.parse(src)
+   local srctree = parser.parse(src, name)
 
    if opts and opts['-p'] then
       print("AST:", util.dump(srctree))

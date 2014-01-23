@@ -43,9 +43,8 @@ end
 function defs.moduleDecl(name, body)
    return { type = "ModuleDeclaration", id = name, body = body }
 end
-function defs.exportDecl(stmt)
-   stmt.export = true
-   return stmt
+function defs.exportStmt(names)
+   return { type = "ExportStatement", names = names }
 end
 function defs.rawString(exprs)
    return { type = "RawString", expressions = exprs }
@@ -56,12 +55,12 @@ end
 function defs.importStmt(names, from)
    return { type = "ImportStatement", names = names, from = from }
 end
-function defs.error(src, pos)
+function defs.error(src, pos, name)
    local loc = string.sub(src, pos, pos)
    if loc == '' then
-      error("Unexpected end of input")
+      error("Unexpected end of input", 2)
    else
-      local tok = string.match(src, '(%w+)', pos) or loc
+      local tok = string.match(src, '%s*(%S+)', pos) or loc
       local line = 0
       local ofs  = 0
       while ofs < pos do
@@ -73,7 +72,7 @@ function defs.error(src, pos)
             break
          end
       end
-      error("Unexpected token '"..tok.."' on line "..tostring(line))
+      error("Unexpected token '"..tok.."' on line "..tostring(line).." "..tostring(name or '?'), 2)
    end
 end
 function defs.fail(src, pos, msg)
@@ -100,7 +99,7 @@ end
 function defs.identifier(name)
    return { type = "Identifier", name = name }
 end
-function defs.compExpr(blocks, body)
+function defs.compExpr(body, blocks)
    return { type = "ArrayComprehension", blocks = blocks, body = body }
 end
 function defs.compBlock(lhs, rhs, filter)
@@ -265,11 +264,13 @@ function defs.classDecl(name, base, body)
 end
 function defs.classMember(s, m)
    m.static = s == "static"
+   if not m.static then
+      table.insert(m.value.params, 1, defs.identifier("self"))
+   end
    return m
 end
 function defs.propDefn(k, n, h, b)
    local func = defs.funcExpr(h, b)
-   table.insert(func.params, 1, defs.identifier("self"))
    for i=#func.defaults, 1, -1 do
       func.defaults[i + 1] = func.defaults[i]
    end

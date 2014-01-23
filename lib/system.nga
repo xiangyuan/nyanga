@@ -1,6 +1,6 @@
 ray = require "ray"
 
-export class File
+class File
    self(path)
       self.path = path
    end
@@ -23,7 +23,7 @@ export class File
    end
 end
 
-export class TCPClient
+class TCPClient
    self(socket = ray::tcp())
       self.socket = socket
    end
@@ -44,7 +44,7 @@ export class TCPClient
    end
 end
 
-export class TCPServer
+class TCPServer
    self(host, port)
       self.socket = ray::tcp()
       self.socket.bind(host, port)
@@ -62,13 +62,13 @@ export class TCPServer
    end
 end
 
-export function async(block)
+function async(block)
    fiber = ray::fiber(block)
    fiber.ready()
    return fiber
 end
 
-export function await(fiber)
+function await(fiber)
    if typeof fiber == "function" then
       fiber = async fiber
    end
@@ -76,16 +76,16 @@ export function await(fiber)
    return fiber.join()
 end
 
-export function sleep(timeout)
+function sleep(timeout)
    timer = ray::timer()
    timer.start timeout, 0
    timer.wait()
    timer.stop()
 end
 
-export function run(main, ...args)
+function run(main, ...args)
    ray::fiber(main, ...args).ready()
    ray::run()
 end
 
-
+export run

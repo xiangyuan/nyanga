@@ -10,8 +10,12 @@ class Point
       self.x = x
       self.y = y
    end
+   class Inner extends self
+      self()
+        super()
+      end
+   end
 end
-
 
 class Point3D extends Point
    self(x, y, z = 0)

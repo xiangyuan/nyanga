@@ -73,6 +73,18 @@ function match:ImportStatement(node)
       B.callExpression(B.identifier('import'), args)
    })
 end
+function match:ExportStatement(node)
+   local block = { }
+   for i=1, #node.names do
+      local expr = B.memberExpression(
+         B.identifier('export'), self:get(node.names[i])
+      )
+      block[#block + 1] = B.assignmentExpression(
+         { expr }, { self:get(node.names[i]) }
+      )
+   end
+   return B.blockStatement(block)
+end
 function match:ModuleDeclaration(node)
    local name = self:get(node.id)
    self.hoist[#self.hoist + 1] = B.localDeclaration({ name }, { })
@@ -107,14 +119,6 @@ function match:ModuleDeclaration(node)
       }, { }
    )
 
-   if node.export then
-      local expr = B.memberExpression(B.identifier('export'), name)
-      self.block[#self.block + 1] = B.assignmentExpression(
-         { expr }, { init }
-      )
-      init = expr
-   end
-
    return B.assignmentExpression({ name }, { init })
 end
 function match:Literal(node)
@@ -125,17 +129,6 @@ function match:Identifier(node)
 end
 function match:VariableDeclaration(node)
    local inits = node.inits and self:list(node.inits) or { }
-   if node.export then
-      for i=1, #node.names do
-         local expr = B.memberExpression(
-            B.identifier('export'), self:get(node.names[i])
-         )
-         self.block[#self.block + 1] = B.assignmentExpression(
-            { expr }, { inits[i] }
-         )
-         inits[i] = expr
-      end
-   end
    for i=1, #node.names do
       local n = node.names[i]
       if n.type == 'Identifier' and not self.ctx:lookup(n.name) then
@@ -343,6 +336,9 @@ function match:UnaryExpression(node)
    local a = self:get(node.argument)
    if o == 'typeof' then
       return B.callExpression(B.identifier('__typeof__'), { a })
+   elseif o == '~' then
+      local call = B.memberExpression(B.identifier('bit'), B.identifier('bnot'))
+      return B.callExpression(call, { a })
    end
    return B.unaryExpression(o, a)
 end
@@ -411,11 +407,6 @@ function match:FunctionDeclaration(node)
 
    frag[#frag + 1] = B.assignmentExpression({ name }, { func });
 
-   if node.export then
-      local expr = B.memberExpression(B.identifier('export'), name)
-      frag[#frag + 1] = B.assignmentExpression({ expr }, { name });
-   end
-
    return B.blockStatement(frag)
 end
 
@@ -436,6 +427,11 @@ function match:ClassDeclaration(node)
 
    local properties = { }
    local body = { }
+
+   self.hoist[#self.hoist + 1] = B.localDeclaration({ name }, { })
+
+   local outer_hoist = self.hoist
+   self.hoist = { }
 
    for i=1, #node.body do
       if node.body[i].type == "PropertyDefinition" then
@@ -490,12 +486,23 @@ function match:ClassDeclaration(node)
                { desc.value }
             )
          end
+      elseif node.body[i].type == 'ClassDeclaration' then
+         body[#body + 1] = self:get(node.body[i])
+         local inner_name = self:get(node.body[i].id)
+         body[#body + 1] = B.assignmentExpression(
+            { B.memberExpression(B.identifier("self"), inner_name) },
+            { inner_name }
+         )
       else
          body[#body + 1] = self:get(node.body[i])
       end
    end
 
-   self.hoist[#self.hoist + 1] = B.localDeclaration({ name }, { })
+   for i=#self.hoist, 1, -1 do
+      table.insert(body, 1, self.hoist[i])
+   end
+
+   self.hoist = outer_hoist
 
    local init = B.callExpression(
       B.identifier('class'), {
@@ -506,14 +513,6 @@ function match:ClassDeclaration(node)
          )
       }
    )
-
-   if node.export then
-      local expr = B.memberExpression(B.identifier('export'), name)
-      self.block[#self.block + 1] = B.assignmentExpression(
-         { expr }, { init }
-      )
-      init = expr
-   end
 
    return B.assignmentExpression(
       { name }, { init }
