@@ -121,16 +121,20 @@ local num = m.C(m.R"09"^1) * S / tonumber
 local String = "'" * m.C((any - "'")^0) * "'" +
                '"' * m.C((any - '"')^0) * '"'
 
-
 local defined = "%" * Def / function (c,Defs)
   local cat =  Defs and Defs[c] or Predef[c]
   if not cat then error ("name '" .. c .. "' undefined") end
   return cat
 end
 
+local argN = "%" * m.C(m.R"09"^1) / function(c)
+   local n = tonumber(c)
+   return mm.Carg(n)
+end
+
 local Range = m.Cs(any * (m.P"-"/"") * (any - "]")) / mm.R
 
-local item = defined + Range + m.C(any)
+local item = argN + defined + Range + m.C(any)
 
 local Class =
     "["
@@ -184,6 +188,7 @@ local exp = m.P{ "Exp",
   Primary = "(" * m.V"Exp" * ")"
             + String / mm.P
             + Class
+            + argN
             + defined
             + "{:" * (name * ":" + m.Cc(nil)) * m.V"Exp" * ":}" /
                      function (n, p) return mm.Cg(p, n) end
