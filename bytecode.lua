@@ -764,6 +764,7 @@ function Proto.__index:op_uget(dest, name)
    return self:emit(BC.UGET, dest, slot)
 end
 function Proto.__index:is_tcall()
+   if #self.code == 0 then return false end
    local prev_inst = self.code[#self.code][1]
    return prev_inst == BC.CALLMT or prev_inst == BC.CALLT
 end
