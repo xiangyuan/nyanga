@@ -42,8 +42,8 @@ end
 local Class = { }
 function Class.__call(class, ...)
    local obj
-   if class.apply then
-      obj = class:apply(...)
+   if class.__apply then
+      obj = class:__apply(...)
    else
       obj = { }
       setmetatable(obj, class)
@@ -155,7 +155,7 @@ function Object:create(proto, props)
 end
 
 local Array = setmetatable({ __members__ = { } }, Class)
-function Array:apply(...)
+function Array:__apply(...)
    return setmetatable({
       length = select('#', ...), [0] = select(1, ...), select(2, ...)
    }, self)
@@ -186,7 +186,45 @@ end
 function Array.__members__:join(sep)
    return table.concat({ Array.__spread(self) }, sep)
 end
-
+function Array.__members__:push(val)
+   self[self.length] = val
+end
+function Array.__members__:pop()
+   local last = self[self.length - 1]
+   self[self.length - 1] = nil
+   self.length = self.length - 1
+   return last
+end
+function Array.__members__:shift()
+   local v = self[0]
+   local l = self.length
+   for i=1, l - 1 do
+      self[i - 1] = self[i]
+   end
+   self.length = l - 1
+   self[l - 1] = nil
+   return v
+end
+function Array.__members__:unshift(v)
+   for i = l - 1, 0 do
+      self[i + 1] = self[i]
+   end
+   self[0] = v
+end
+function Array.__members__:slice(offset, count)
+   local a = Array()
+   for i=offset, i + count do
+      a[i] = self[i]
+   end
+   return a
+end
+function Array.__members__:reverse()
+   local a = Array()
+   for i = self.length - 1, 0 do
+      a[a.length] = self[i]
+   end
+   return a
+end
 do
    local gaps = {
       1391376, 463792, 198768, 86961, 33936, 13776,
@@ -480,8 +518,6 @@ GLOBAL = setmetatable({
    __in__  = __in__;
    __is__  = __is__;
    throw   = error;
-   assert  = function(...) return assert(...) end;
-   print   = function(...) print(...) end;
 }, { __index = _G })
 
 local system = require('system.nga')
