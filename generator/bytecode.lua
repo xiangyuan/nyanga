@@ -74,7 +74,7 @@ function match:SendExpression(node, base, want, tail)
    base = base or self.ctx:nextreg()
    base = self:emit(node.receiver, base, 1)
 
-   self.ctx:nextreg(narg + 1)
+   self.ctx:nextreg(narg + 2)
 
    local recv = base + 1
    local meth = recv + 1
