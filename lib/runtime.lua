@@ -511,21 +511,23 @@ GLOBAL = setmetatable({
    RegExp = RegExp;
    class  = class;
    import = import;
+   yield  = coroutine.yield;
+   throw  = error;
    __range__  = range;
    __spread__ = spread;
    __typeof__ = type;
    __each__   = each;
    __in__  = __in__;
    __is__  = __is__;
-   throw   = error;
 }, { __index = _G })
 
-local system = require('system.nga')
-package.loaded['@system'] = system
+--local system = require('system.nga')
+--package.loaded['@system'] = system
 
 local function run(code, ...)
    setfenv(code, GLOBAL)
-   system.run(code)
+   code(...)
+   --system.run(code)
 end
 
 local usage = "usage: %s [options]... [script [args]...].\
@@ -582,7 +584,8 @@ local function runopt(args)
    end
    local main = assert(loadstring(compiler.compile(code, name, opts), name))
    setfenv(main, GLOBAL)
-   system.run(main, unpack(args))
+   main(unpack(args))
+   --system.run(main, unpack(args))
 end
 
 return {
