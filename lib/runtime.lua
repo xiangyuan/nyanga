@@ -297,7 +297,7 @@ end
 
 local String = class("String", nil, function(self, super)
    local orig_meta = getmetatable("")
-   for k, v in pairs(orig_meta) do
+   for k, v in pairs(orig_meta.__index) do
       self.__members__[k] = v
    end
    self.__getindex = function(o, k)

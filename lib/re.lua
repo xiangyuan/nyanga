@@ -3,7 +3,7 @@
 -- imported functions and modules
 local tonumber, type, print, error = tonumber, type, print, error
 local setmetatable = setmetatable
-local m = require"lpeg"
+local m = require"lpeglj"
 
 -- 'm' will be used to parse expressions, and 'mm' will be used to
 -- create expressions; that is, 're' runs on 'm', creating patterns
@@ -12,6 +12,7 @@ local mm = m
 
 -- pattern's metatable
 local mt = getmetatable(mm.P(0))
+mt = m.version() == "0.12.1LJ" and m or mt
 
 
 

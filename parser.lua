@@ -1,7 +1,7 @@
 local util = require("util")
 local re   = require('re')
 local defs = require('parser.defs')
-local lpeg = require('lpeg')
+local lpeg = require('lpeglj')
 lpeg.setmaxstack(1024)
 
 local patt = [[
