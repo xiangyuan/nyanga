@@ -196,14 +196,14 @@ local patt = [[
 
    func_expr <- (
       "function" <idsafe> s <func_head> s <func_body>
-      / (<func_head> / {| |}) s "=>" s (<expr> / <func_body>)
+      / (<func_head> / {| |}) s "=>" s (<block_stmt> s <end> / <expr> / %1 => error)
    ) -> funcExpr
 
    func_body <- <block_stmt> s (<end> / %1 => error)
 
    coro_expr <- (
       "function*" s <func_head> s <func_body>
-      / "*" <func_head> s "=>" s (<expr> / <func_body>)
+      / "*" <func_head> s "=>" s (<block_stmt> s <end> / <expr> / %1 => error)
    ) -> coroExpr
 
    coro_decl <- (
@@ -291,7 +291,7 @@ local patt = [[
       !<keyword> { <word> }
    ) -> identifier
 
-   term <- (
+   term <- ({} (
         <coro_expr>
       / <func_expr>
       / <nil_expr>
@@ -304,9 +304,9 @@ local patt = [[
       / <literal>
       / <rstring>
       / "(" s <expr> s ")"
-   )
+   )) -> term
 
-   expr <- <infix_expr> / <spread_expr>
+   expr <- ({} (<infix_expr> / <spread_expr>)) -> expr
 
    spread_expr <- (
       "..." <postfix_expr>
@@ -364,8 +364,8 @@ local patt = [[
    |}
 
    assop <- {
-      "+=" / "-=" / "~=" / "**=" / "*=" / "/=" / "%="
-      / "|=" / "&=" / "^=" / "<<=" / ">>>=" / ">>="
+      "+=" / "-=" / "~=" / "**=" / "*=" / "/=" / "%=" / "and="
+      / "|=" / "or=" / "&=" / "^=" / "<<=" / ">>>=" / ">>="
    }
 
    assign_expr <- (

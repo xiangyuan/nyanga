@@ -156,16 +156,22 @@ function match:AssignmentExpression(node)
    return B.blockStatement(body)
 end
 function match:UpdateExpression(node)
-   local oper = string.sub(node.operator, 1, 1)
-   return B.assignmentExpression({
-      self:get(node.left)
-   }, {
-      match.BinaryExpression(self, {
+   local oper = string.sub(node.operator, 1, -2)
+   local expr
+   if oper == 'or' or oper == 'and' then
+      expr = match.LogicalExpression(self, {
          operator = oper,
          left     = node.left,
          right    = node.right
       })
-   })
+   else
+      expr = match.BinaryExpression(self, {
+         operator = oper,
+         left     = node.left,
+         right    = node.right
+      })
+   end
+   return B.assignmentExpression({ self:get(node.left) }, { expr })
 end
 function match:MemberExpression(node)
    return B.memberExpression(
@@ -205,7 +211,7 @@ end
 function match:YieldStatement(node)
    return B.expressionStatement(
       B.callExpression(
-         B.memberExpression(B.identifier('coroutine'), B.identifier('yield')),
+         B.identifier('yield'),
          self:list(node.arguments)
       )
    )
