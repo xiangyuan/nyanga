@@ -28,28 +28,24 @@ local MULTIRES = -1
 function match:CallExpression(node, base, want, tail)
    local free = self.ctx.freereg
 
-   want = want or 0
    base = base or self.ctx:nextreg()
+   want = want or 0
    base = self:emit(node.callee, base, want)
 
    local narg = #node.arguments
    self.ctx:nextreg(narg)
 
-   local args = { }
-   local mres = false
+   local last
    for i=1, narg do
       if i == narg then
-         args[#args + 1] = self:emit(node.arguments[i], base + i, MULTIRES)
+         last = self:emit(node.arguments[i], base + i, MULTIRES)
       else
-         args[#args + 1] = self:emit(node.arguments[i], base + i, 1)
-      end
-      if args[#args] == MULTIRES then
-         mres = true
+         last = self:emit(node.arguments[i], base + i, 1)
       end
    end
 
    self.ctx.freereg = free
-   if mres then
+   if last == MULTIRES then
       if tail then
          self.ctx:op_callmt(base, narg - 1)
       else
@@ -68,42 +64,27 @@ end
 
 function match:SendExpression(node, base, want, tail)
    local free = self.ctx.freereg
-   local narg = #node.arguments
 
-   want = want or 0
    base = base or self.ctx:nextreg()
-   base = self:emit(node.receiver, base, 1)
+   want = want or 0
+   base = self:emit(node.receiver, base, want)
 
-   self.ctx:nextreg(narg + 2)
+   local narg = #node.arguments
+   self.ctx:nextreg(narg + 1)
+   self.ctx:op_move(base + 1, base)
+   self.ctx:op_tget(base, base, node.method.name)
 
-   local recv = base + 1
-   local meth = recv + 1
-   self.ctx:op_move(recv, base)
-   self.ctx:op_load(meth, node.method.name)
-   self.ctx:op_tget(base, base, meth)
-
-   local args = { }
-   local mres = false
+   local last
    for i=1, narg do
       if i == narg then
-         args[#args + 1] = self:emit(node.arguments[i], recv + i, MULTIRES)
+         last = self:emit(node.arguments[i], base + 1 + i, MULTIRES)
       else
-         args[#args + 1] = self:emit(node.arguments[i], recv + i, 1)
-      end
-      if args[#args] == MULTIRES then
-         mres = true
+         last = self:emit(node.arguments[i], base + 1 + i, 1)
       end
    end
 
    self.ctx.freereg = free
-   if want == MULTIRES then
-      if tail then
-         self.ctx:op_callt(base, narg + 1)
-      else
-         self.ctx:op_call(base, want, narg + 1)
-      end
-      return MULTIRES
-   elseif mres then
+   if last == MULTIRES then
       if tail then
          self.ctx:op_callmt(base, narg)
       else
@@ -117,7 +98,7 @@ function match:SendExpression(node, base, want, tail)
       end
    end
 
-   return base
+   return want == MULTIRES and MULTIRES or base
 end
 
 function match:LabelStatement(node)
@@ -172,19 +153,22 @@ function match:Table(node, dest)
    return dest
 end
 function match:Identifier(node, dest, want)
-   dest = dest or self.ctx:nextreg()
    want = want or 0
    local info, uval = self.ctx:lookup(node.name)
    if info then
       if uval then
+         dest = dest or self.ctx:nextreg()
          self.ctx:op_uget(dest, node.name)
       else
          local var = self.ctx.varinfo[node.name]
-         if dest ~= var.idx then
+         if dest and dest ~= var.idx then
             self.ctx:op_move(dest, var.idx)
+         else
+            dest = var.idx
          end
       end
    else
+      dest = dest or self.ctx:nextreg()
       self.ctx:op_gget(dest, node.name)
    end
    return dest
