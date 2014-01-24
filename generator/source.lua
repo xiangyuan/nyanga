@@ -57,6 +57,9 @@ function match:BinaryExpression(node)
 end
 function match:UnaryExpression(node)
    self:write(node.operator)
+   if node.operator == 'not' then
+      self:write(" ")
+   end
    self:render(node.argument)
    self:write(" ")
 end
