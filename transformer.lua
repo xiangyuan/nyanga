@@ -65,7 +65,7 @@ function match:Chunk(node)
    return B.chunk(self.block)
 end
 function match:ImportStatement(node)
-   local args = { B.literal(node.from) }
+   local args = { self:get(node.from) }
    for i=1, #node.names do
       args[#args + 1] = B.literal(node.names[i].name)
    end
