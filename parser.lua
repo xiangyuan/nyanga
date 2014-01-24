@@ -37,21 +37,18 @@ local patt = [[
    escape <- {~ ('\' (%digit^3 / .)) -> escape ~}
 
    astring <- "'" {~ (<escape> / {!"'" .})* ~} "'"
-   qstring <- '"' {~ (<escape> / {!'"' .})* ~} '"'
 
-   special <- "\n" "\$" / "\\" / "\" .
-
-   rstring <- {|
-      '`' (
-         <raw_expr> / { (<special> / !(<raw_expr> / '`') .)+ }
-      )* '`'
+   qstring <- {|
+      '"' (
+         <raw_expr> / {~ (<escape> / !(<raw_expr> / '"') .)+ ~}
+      )* '"'
    |} -> rawString
 
    raw_expr <- (
       "${" s <expr> s "}"
    ) -> rawExpr
 
-   string  <- <qstring> / <astring>
+   string  <- <astring>
 
    hexnum <- "-"? "0x" %xdigit+
 
@@ -95,8 +92,8 @@ local patt = [[
    ) -> exportStmt
 
    import_stmt <- (
-      "import" <idsafe> s {| {"*"} / <ident> (s "," s <ident>)* |} s
-      "from" <idsafe> s <string>
+      "import" <idsafe> s {| <ident> (s "," s <ident>)* |} s
+      "from" <idsafe> s <expr>
    ) -> importStmt
 
    stmt <- ({} (
@@ -302,7 +299,7 @@ local patt = [[
       / <regex_expr>
       / <ident>
       / <literal>
-      / <rstring>
+      / <qstring>
       / "(" s <expr> s ")"
    )) -> term
 

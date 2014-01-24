@@ -40,6 +40,14 @@ function defs.stmt(pos, node)
    node.pos = pos
    return node
 end
+function defs.term(pos, node)
+   node.pos = pos
+   return node
+end
+function defs.expr(pos, node)
+   node.pos = pos
+   return node
+end
 function defs.moduleDecl(name, body)
    return { type = "ModuleDeclaration", id = name, body = body }
 end
@@ -52,7 +60,7 @@ end
 function defs.rawExpr(expr)
    return { type = "RawExpression", expression = expr }
 end
-function defs.importStmt(names, from)
+function defs.importStmt(names, from, ...)
    return { type = "ImportStatement", names = names, from = from }
 end
 function defs.error(src, pos, name)
