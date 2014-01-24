@@ -70,16 +70,16 @@ local function class(name, base, body)
       if class.__members__[k] then
          return class.__members__[k]
       end
-      if class.__getindex__ then
-         return class.__getindex__(o, k)
+      if class.__getindex then
+         return class.__getindex(o, k)
       end
       return nil
    end
    function class.__newindex(o, k, v)
       if class.__setters__[k] then
          class.__setters__[k](o, v)
-      elseif class.__setindex__ then
-         class.__setindex__(o, k, v)
+      elseif class.__setindex then
+         class.__setindex(o, k, v)
       else
          rawset(o, k, v)
       end
@@ -98,20 +98,6 @@ end
 local Object = setmetatable({ }, Class)
 Object.self = function()
    return Object:create({ }, { })
-end
-function Object:defineProperties(obj, props)
-   --local m = getmetatable(obj)
-   local m = obj
-   for k, d in pairs(props) do
-      if d.get then
-         m.__getters__[k] = d.get
-      elseif d.set then
-         m.__setters__[k] = d.set
-      else
-         m.__members__[k] = d.value
-      end
-   end
-   return obj 
 end
 function Object:create(proto, props)
    local m = { }
@@ -300,135 +286,98 @@ local String = class("String", Object, function(self, super)
    for k, v in pairs(orig_meta) do
       self.__members__[k] = v
    end
-   self.__getindex__ = function(o, k)
+   self.__getindex = function(o, k)
       if type(k) == "table" and getmetatable(k) == Range then
          return string.sub(o, k.left, k.right)
       end
    end
-
-   Object:defineProperties(self, {
-      self = {
-         value = function(self, that)
-            return tostring(that)
-         end
-      },
-      match = {
-         value = function(self, regex)
-            if type(regex) == 'string' then
-               return string.match(self, regex)
-            else
-               local capt = Array()
-               while true do
-                  local result = regex:exec(self)
-                  if result == nil then
-                     break
-                  end
-                  capt[capt.length] = result[1]
-               end
-               if capt.length > 0 then
-                  return capt
-               else
-                  return nil
-               end
+   self.__members__.self = function(self, that)
+      return tostring(that)
+   end
+   self.__members__.match = function(self, regex)
+      if type(regex) == 'string' then
+         return string.match(self, regex)
+      else
+         local capt = Array()
+         while true do
+            local result = regex:exec(self)
+            if result == nil then
+               break
             end
+            capt[capt.length] = result[1]
          end
-      },
-      format = {
-         value = string.format
-      },
-      find = {
-         -- TODO: regex support
-         value = string.find
-      },
-      toString = {
-         value = function(self)
-            return self
+         if capt.length > 0 then
+            return capt
+         else
+            return nil
          end
-      },
-      sub = {
-         value = string.sub
-      },
-      gsub = {
-         value = string.gsub
-      }
-   })
+      end
+   end
+   self.__members__.toString = tostring
 end)
 debug.setmetatable("", String)
 
 local RegExp = class("RegExp", Object, function(self, super)
    local pcre = require('pcre')
 
-   Object:defineProperties(self, {
-      self = {
-         value = function(self, source, flags)
-            flags = flags or ''
-            self.index = 0
-            self.input = ''
-            self.source  = source
-            local opts = 0
-            if string.find(flags, 'i') then
-               opts = opts + pcre.lib.PCRE_CASELESS
-               self.ignoreCase = true
-            end
-            if string.find(flags, 'm') then
-               opts = opts + pcre.lib.PCRE_MULTILINE
-               self.multiLine = true
-            end
-            self.pattern = assert(pcre.compile(source, opts))
-            if string.find(flags, 'g') then
-               self.global = true
-            end
-         end
-      },
-      exec = {
-         value = function(self, str)
-            if self.input ~= str then
-               self.input = str
-               self.index = 0
-            end
-            local result = pcre.execute(self.pattern, self.input, self.index)
-            if type(result) == 'table' then
-               self.index = self.index + #result[1] + 1
-               return result
-            elseif result == pcre.lib.PCRE_ERROR_NOMATCH then
-               return nil
-            else
-               error(result, 2)
-            end
-         end
-      },
-      test = {
-         value = function(self, str)
-            local result = pcre.execute(self.pattern, str)
-            if type(result) == 'table' then
-               return true
-            else
-               return false
-            end
-         end
-      },
-      toString = {
-         value = function(self)
-            return string.format('RegExp(%q)', tostring(self.source))
-         end
-      }
-   })
+   self.__members__.self = function(self, source, flags)
+      flags = flags or ''
+      self.index = 0
+      self.input = ''
+      self.source  = source
+      local opts = 0
+      if string.find(flags, 'i') then
+         opts = opts + pcre.lib.PCRE_CASELESS
+         self.ignoreCase = true
+      end
+      if string.find(flags, 'm') then
+         opts = opts + pcre.lib.PCRE_MULTILINE
+         self.multiLine = true
+      end
+      self.pattern = assert(pcre.compile(source, opts))
+      if string.find(flags, 'g') then
+         self.global = true
+      end
+   end
+
+   self.__members__.exec = function(self, str)
+      if self.input ~= str then
+         self.input = str
+         self.index = 0
+      end
+      local result = pcre.execute(self.pattern, self.input, self.index)
+      if type(result) == 'table' then
+         self.index = self.index + #result[1] + 1
+         return result
+      elseif result == pcre.lib.PCRE_ERROR_NOMATCH then
+         return nil
+      else
+         error(result, 2)
+      end
+   end
+
+   self.__members__.test = function(self, str)
+      local result = pcre.execute(self.pattern, str)
+      if type(result) == 'table' then
+         return true
+      else
+         return false
+      end
+   end
+
+   self.__members__.toString = function(self)
+      return string.format('RegExp(%q)', tostring(self.source))
+   end
 end)
 
 local Error = class("Error", Object, function(self, super)
-   Object:defineProperties(self, {
-      self = {
-         value = function(self, mesg)
-            self.message = mesg
-            self.trace = debug.traceback(mesg, 2)
-         end
-      },
-      toString = {
-         value = function(self)
-            return self.message
-         end
-      }
-   })
+   self.__members__.self = function(self, mesg)
+      self.message = mesg
+      self.trace = debug.traceback(mesg, 2)
+   end
+   self.__members__.toString = function(self)
+      return self.message
+   end
 end)
 
 local function spread(o)
@@ -495,10 +444,12 @@ local function __in__(self, that)
 end
 
 local function import(from, ...)
-   local mod  = require(from)
+   if type(from) == 'string' then
+      from = require(from)
+   end
    local list = { }
    for i=1, select('#', ...) do
-      list[i] = mod[select(i, ...)]
+      list[i] = from[select(i, ...)]
    end
    return unpack(list)
 end
