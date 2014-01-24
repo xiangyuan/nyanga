@@ -282,6 +282,9 @@ function match:UnaryExpression(node, dest, want)
    return dest
 end
 function match:ListExpression(node, dest, want)
+   if #node.expressions == 1 then
+      return self:emit(node.expressions[1], dest, want)
+   end
    local free = self.ctx.freereg
    dest = dest or self.ctx:nextreg()
    local o = node.operator
