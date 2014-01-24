@@ -39,6 +39,44 @@ local function __is__(a, b)
    return false
 end
 
+local Module = { }
+function Module.__tostring(self)
+   return string.format("Module<%s>", self.__name)
+end
+function Module.__index(self, k)
+   if self.__getters__[k] then
+      return self.__getters__[k](self)
+   end
+   if self.__members__[k] then
+      return self.__members__[k]
+   end
+   return nil
+end
+function Module.__newindex(self, k, v)
+   if self.__setters__[k] then
+      self.__setters__[k](self, v)
+   else
+      rawset(self, k, v)
+   end
+end
+function Module.__tostring(self)
+   if self.toString then
+      return self:toString()
+   else
+      return string.format('<%s>:%p', self.__name, self)
+   end
+end
+
+local function module(name, body)
+   local module = { __name = name }
+   module.__getters__ = { }
+   module.__setters__ = { }
+   module.__members__ = { }
+
+   body(setmetatable(module, Module))
+   return module
+end
+
 local Class = { }
 function Class.__call(class, ...)
    local obj
@@ -59,9 +97,14 @@ end
 
 local function class(name, base, body)
    local class = { __name = name, __base = base }
-   class.__getters__ = setmetatable({ }, { __index = base.__getters__ })
-   class.__setters__ = setmetatable({ }, { __index = base.__setters__ })
-   class.__members__ = setmetatable({ }, { __index = base.__members__ })
+   class.__getters__ = { }
+   class.__setters__ = { }
+   class.__members__ = { }
+   if base then
+      setmetatable(class.__getters__, { __index = base.__getters__ })
+      setmetatable(class.__setters__, { __index = base.__setters__ })
+      setmetatable(class.__members__, { __index = base.__members__ })
+   end
 
    function class.__index(o, k)
       if class.__getters__[k] then
@@ -91,53 +134,24 @@ local function class(name, base, body)
          return string.format('<%s>:%p', name, o)
       end
    end
-   body(setmetatable(class, Class), base.__members__)
+   body(setmetatable(class, Class), base and base.__members__ or { })
    return class
 end
 
-local Object = setmetatable({ }, Class)
-Object.self = function()
-   return Object:create({ }, { })
-end
-function Object:create(proto, props)
-   local m = { }
-   m.__getters__ = { }
-   m.__setters__ = { }
-   m.__members__ = setmetatable({ }, { __index = proto })
-   function m.__index(o, k)
-      if m.__getters__[k] then
-         return m.__getters__[k](o)
-      elseif m.__members__[k] ~= nil then
-         return m.__members__[k]
+local function include(into, ...)
+   local args = { ... }
+   for i=1, #args do
+      local from = args[i] 
+      for k,v in pairs(from.__getters__) do
+         into.__getters__[k] = v
       end
-      return nil
-   end
-   function m.__newindex(o, k, v)
-      if m.__setters__[k] then
-         m.__setters__[k](o, v)
-      else
-         rawset(o, k, v)
+      for k,v in pairs(from.__setters__) do
+         into.__setters__[k] = v
+      end
+      for k,v in pairs(from.__members__) do
+         into.__members__[k] = v
       end
    end
-   function m.__tostring(o)
-      if o.toString then
-         return o:toString()
-      else
-         return string.format('<Object>:%p', o)
-      end
-   end
-
-   local o = { }
-   for k, d in pairs(props) do
-      if d.get then
-         m.__getters__[k] = d.get
-      elseif d.set then
-         m.__setters__[k] = d.set
-      else
-         o[k] = d.value
-      end
-   end
-   return setmetatable(o, m)
 end
 
 local Array = setmetatable({ __members__ = { } }, Class)
@@ -281,7 +295,7 @@ local function try(try, catch, finally)
    return rv
 end
 
-local String = class("String", Object, function(self, super)
+local String = class("String", nil, function(self, super)
    local orig_meta = getmetatable("")
    for k, v in pairs(orig_meta) do
       self.__members__[k] = v
@@ -317,7 +331,7 @@ local String = class("String", Object, function(self, super)
 end)
 debug.setmetatable("", String)
 
-local RegExp = class("RegExp", Object, function(self, super)
+local RegExp = class("RegExp", nil, function(self, super)
    local pcre = require('pcre')
 
    self.__members__.self = function(self, source, flags)
@@ -370,7 +384,7 @@ local RegExp = class("RegExp", Object, function(self, super)
    end
 end)
 
-local Error = class("Error", Object, function(self, super)
+local Error = class("Error", nil, function(self, super)
    self.__members__.self = function(self, mesg)
       self.message = mesg
       self.trace = debug.traceback(mesg, 2)
@@ -456,14 +470,17 @@ end
 
 GLOBAL = setmetatable({
    try    = try;
-   Object = Object;
    Array  = Array;
    Error  = Error;
    RegExp = RegExp;
+   Module = Module;
+   Class  = Class;
    class  = class;
+   module = module;
    import = import;
    yield  = coroutine.yield;
    throw  = error;
+   include = include;
    __range__  = range;
    __spread__ = spread;
    __typeof__ = type;

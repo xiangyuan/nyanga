@@ -48,9 +48,18 @@ function defs.expr(pos, node)
    node.pos = pos
    return node
 end
+
+function defs.includeStmt(names)
+   return { type = "IncludeStatement", names = names }
+end
 function defs.moduleDecl(name, body)
    return { type = "ModuleDeclaration", id = name, body = body }
 end
+function defs.moduleMember(m)
+   table.insert(m.value.params, 1, defs.identifier("self"))
+   return m
+end
+
 function defs.exportStmt(names)
    return { type = "ExportStatement", names = names }
 end
@@ -124,9 +133,6 @@ function defs.tablePatt(properties)
    return { type = "TablePattern", properties = properties }
 end
 function defs.tableMember(prop)
-   if prop.type ~= "PropertyDefinition" then
-      prop.kind = "init"
-   end
    return prop
 end
 

@@ -85,42 +85,6 @@ function match:ExportStatement(node)
    end
    return B.blockStatement(block)
 end
-function match:ModuleDeclaration(node)
-   local name = self:get(node.id)
-   self.hoist[#self.hoist + 1] = B.localDeclaration({ name }, { })
-
-   local outer_block = self.block
-   local outer_hoist = self.hoist
-
-   self.block = { }
-   self.hoist = { }
-
-   local export = B.identifier('export')
-   self.block[#self.block + 1] = B.localDeclaration({ export }, { B.table({}) })
-
-   for i=1, #node.body do
-      local stmt = self:get(node.body[i])
-      self.block[#self.block + 1] = stmt
-   end
-   for i=#self.hoist, 1, -1 do
-      table.insert(self.block, 1, self.hoist[i])
-   end
-
-   local body = self.block
-
-   self.block = outer_block
-   self.hoist = outer_hoist
-
-   body[#body + 1] = B.returnStatement({ export })
-
-   local init = B.callExpression(
-      B.parenExpression{
-         B.functionExpression({ }, B.blockStatement(body))
-      }, { }
-   )
-
-   return B.assignmentExpression({ name }, { init })
-end
 function match:Literal(node)
    return B.literal(node.value)
 end
@@ -416,20 +380,106 @@ function match:FunctionDeclaration(node)
    return B.blockStatement(frag)
 end
 
---[[
-   local Point = class("Point", function(this, super)
-      Object:defineProperties(this, {
-         move = {
-            value = function(self, x, y)
+function match:IncludeStatement(node)
+   local args = self:list(node.names)
+   table.insert(args, 1, B.identifier("self"))
+   return B.expressionStatement(B.callExpression(B.identifier("include"), args))
+end
 
-            end,
-         }
-      })
-   end)
-]]
+function match:ModuleDeclaration(node)
+   local name = self:get(node.id)
+
+   local properties = { }
+   local body = { }
+
+   self.hoist[#self.hoist + 1] = B.localDeclaration({ name }, { })
+
+   local outer_hoist = self.hoist
+   self.hoist = { }
+
+   for i=1, #node.body do
+      if node.body[i].type == "PropertyDefinition" then
+         local prop = node.body[i]
+         local desc = properties[prop.key.name] or { }
+         if prop.kind == 'get' then
+            desc.get = self:get(prop)
+         elseif prop.kind == 'set' then
+            desc.set = self:get(prop)
+         else
+            desc.value = self:get(prop)
+         end
+
+         properties[prop.key.name] = desc
+
+         if desc.get then
+            -- self.__getters__[key] = desc.get
+            body[#body + 1] = B.assignmentExpression(
+               { B.memberExpression(
+                  B.memberExpression(B.identifier("self"), B.identifier("__getters__")),
+                  B.identifier(prop.key.name)
+               ) },
+               { desc.get }
+            )
+         elseif desc.set then
+            -- self.__setters__[key] = desc.set
+            body[#body + 1] = B.assignmentExpression(
+               { B.memberExpression(
+                  B.memberExpression(B.identifier("self"), B.identifier("__setters__")),
+                  B.identifier(prop.key.name)
+               ) },
+               { desc.set }
+            )
+         else
+            -- self.__members__[key] = desc.value
+            local base
+            if prop.static then
+               base = B.identifier("self")
+            else
+               base = B.memberExpression(
+                  B.identifier("self"), B.identifier("__members__")
+               )
+            end
+            body[#body + 1] = B.assignmentExpression(
+               { B.memberExpression(base, B.identifier(prop.key.name)) },
+               { desc.value }
+            )
+         end
+      elseif node.body[i].type == 'ClassDeclaration' or node.body[i].type == "ModuleDeclaration" then
+         body[#body + 1] = self:get(node.body[i])
+         local inner_name = self:get(node.body[i].id)
+         body[#body + 1] = B.assignmentExpression(
+            { B.memberExpression(B.identifier("self"), inner_name) },
+            { inner_name }
+         )
+      else
+         body[#body + 1] = self:get(node.body[i])
+      end
+   end
+
+   for i=#self.hoist, 1, -1 do
+      table.insert(body, 1, self.hoist[i])
+   end
+
+   self.hoist = outer_hoist
+
+   local init = B.callExpression(
+      B.identifier('module'), {
+         B.literal(node.id.name),
+         B.functionExpression(
+            { B.identifier('self') },
+            B.blockStatement(body)
+         )
+      }
+   )
+
+   return B.assignmentExpression(
+      { name }, { init }
+   )
+end
+
 function match:ClassDeclaration(node)
    local name = self:get(node.id)
-   local base = node.base and self:get(node.base) or B.identifier('Object')
+   local base = node.base and self:get(node.base) or B.literal(nil)
 
    local properties = { }
    local body = { }
@@ -680,31 +730,14 @@ function match:TableExpression(node)
          key = prop.name
       end
 
-      local desc = properties[key] or { }
-
-      if prop.kind == 'get' then
-         desc.get = self:get(prop.value)
-      elseif prop.kind == 'set' then
-         desc.set = self:get(prop.value)
-      elseif prop.value then
-         desc.value = self:get(prop.value)
+      if prop.value then
+         properties[key] = self:get(prop.value)
       else
-         desc.value = B.identifier(key)
+         properties[key] = B.identifier(key)
       end
-
-      properties[key] = desc
    end
 
-   for k,v in pairs(properties) do
-      properties[k] = B.table(v)
-   end
-
-   return B.sendExpression(
-      B.identifier('Object'), B.identifier("create"), {
-         B.literal(nil);
-         B.table(properties);
-      }
-   )
+   return B.table(properties)
 end
 function match:RawString(node)
    local list = { }

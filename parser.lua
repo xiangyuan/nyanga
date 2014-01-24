@@ -28,7 +28,7 @@ local patt = [[
       / "yield" / "break" / "continue" / "not" / "throw"
       / "while" / "do" / "for" / "in" / "of" / "and" / "or"
       / "super" / "import" / "export" / "try" / "catch" / "finally"
-      / "if" / "elseif" / "else" / "then" / "is"
+      / "if" / "elseif" / "else" / "then" / "is" / "include"
       / "repeat" / "until"
    ) <idsafe>
 
@@ -71,21 +71,12 @@ local patt = [[
    literal <- ( <number> / <string> / <boolean> ) -> literal
 
    main_stmt <- (
-        <module_decl>
-      / <import_stmt>
-      / <export_stmt>
-      / <stmt>
+      <export_stmt> / <stmt>
    )
 
    in  <- "in"  <idsafe>
    end <- "end" <idsafe>
    do  <- "do"  <idsafe>
-
-   module_decl <- (
-      "module" <idsafe> s <ident> s
-         {| (<main_stmt> (<sep> s <main_stmt>)*)? |} s
-      (<end> / %1 => error)
-   ) -> moduleDecl
 
    export_stmt <- (
       "export" <idsafe> s {| <name_list> |}
@@ -97,7 +88,8 @@ local patt = [[
    ) -> importStmt
 
    stmt <- ({} (
-      <if_stmt>
+      <import_stmt>
+      / <if_stmt>
       / <while_stmt>
       / <repeat_stmt>
       / <for_stmt>
@@ -149,7 +141,7 @@ local patt = [[
    ) -> catchClause
 
    decl_stmt <- (
-      <local_decl> / <coro_decl> / <func_decl> / <class_decl>
+      <local_decl> / <coro_decl> / <func_decl> / <class_decl> / <module_decl>
    )
 
    local_decl <- (
@@ -212,8 +204,32 @@ local patt = [[
       <func_head> s <func_body>
    ) -> coroProp
 
+   include_stmt <- (
+      "include" <idsafe> s {| <name_list> |}
+   ) -> includeStmt
+
+   module_decl <- (
+      "module" <idsafe> s <ident> s
+      <module_body> s
+      (<end> / %1 => error)
+   ) -> moduleDecl
+
+   module_body <- {|
+      (<module_body_stmt> (<sep> s <module_body_stmt>)* <sep>?)?
+   |}
+
+   module_body_stmt <- (
+      <module_member> / <include_stmt> / !<return_stmt> <stmt>
+   )
+
+   module_member <- (
+      <coro_prop> / <prop_defn>
+   ) -> moduleMember
+
    class_decl <- (
-      "class" <idsafe> s <ident> (s <class_heritage>)? s <class_body> s <end>
+      "class" <idsafe> s <ident> (s <class_heritage>)? s
+      <class_body> s
+      (<end> / %1 => error)
    ) -> classDecl
 
    class_body <- {|
@@ -221,7 +237,7 @@ local patt = [[
    |}
 
    class_body_stmt <- (
-      <class_member> / !<return_stmt> <stmt>
+      <class_member> / <include_stmt> / !<return_stmt> <stmt>
    )
 
    class_member <- (
@@ -386,7 +402,7 @@ local patt = [[
    table_members <- (
       <table_member> (hs (","/";"/%nl) s <table_member>)* (hs (","/";"/%nl))?
    )
-   table_member <- ((<coro_prop> / <prop_defn>) / {|
+   table_member <- ({|
       {:key: ("[" s <expr> s "]" / <ident>) :} s "=" s {:value: <expr> :}
    |} / <ident>) -> tableMember
 
