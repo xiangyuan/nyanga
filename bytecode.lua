@@ -482,10 +482,11 @@ function Proto.__index:newvar(name, reg, ofs)
       name     = name;
    }
    self.actvars[name] = var
-
    self.varinfo[name] = var
+
    var.vidx = #self.varinfo
    self.varinfo[#self.varinfo + 1] = var
+
    return var
 end
 function Proto.__index:lookup(name)
@@ -790,18 +791,22 @@ function Proto.__index:close_uvals()
    end
 end
 function Proto.__index:op_ret(base, rnum)
+   if #self.code > 0 and self.code[#self.code][1] == BC.CALLMT then return end
    self:close_uvals()
    return self:emit(BC.RET, base, rnum + 1)
 end
 function Proto.__index:op_ret0()
+   if #self.code > 0 and self.code[#self.code][1] == BC.CALLMT then return end
    self:close_uvals()
    return self:emit(BC.RET0, 0, 1)
 end
 function Proto.__index:op_ret1(base)
+   if #self.code > 0 and self.code[#self.code][1] == BC.CALLMT then return end
    self:close_uvals()
    return self:emit(BC.RET1, base, 2)
 end
 function Proto.__index:op_retm(base, rnum)
+   if #self.code > 0 and self.code[#self.code][1] == BC.CALLMT then return end
    self:close_uvals()
    return self:emit(BC.RETM, base, rnum)
 end
@@ -820,7 +825,7 @@ function Proto.__index:op_callm(base, want, narg)
 end
 function Proto.__index:op_callmt(base, narg)
    self:close_uvals()
-   return self:emit(BC.CALLMT, base, narg + 1)
+   return self:emit(BC.CALLMT, base, narg)
 end
 function Proto.__index:op_fori(base, stop, step)
    local loop = self:emit(BC.FORI, base, NO_JMP)
