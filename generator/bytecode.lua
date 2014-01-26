@@ -160,11 +160,11 @@ function match:Identifier(node, dest, want)
          dest = dest or self.ctx:nextreg()
          self.ctx:op_uget(dest, node.name)
       else
-         local var = self.ctx.varinfo[node.name]
-         if dest and dest ~= var.idx then
-            self.ctx:op_move(dest, var.idx)
-         else
+         local var = self.ctx.actvars[node.name]
+         if not dest then
             dest = var.idx
+         elseif dest ~= var.idx then
+            self.ctx:op_move(dest, var.idx)
          end
       end
    else
@@ -317,7 +317,10 @@ function match:LocalDeclaration(node)
 
    for i=1, #node.names do
       local lhs = node.names[i]
-      self.ctx:newvar(lhs.name, base + (i - 1))
+      local var = self.ctx:newvar(lhs.name, base + (i - 1))
+      if #node.expressions == 0 then
+         self.ctx:op_load(var.idx, nil)
+      end
    end
 end
 
