@@ -1,69 +1,548 @@
-ray = require "ray"
 
-class File
-   self(path)
-      self.path = path
+require("lib/system_h")
+
+ffi = require("ffi")
+C   = ffi.C
+
+function strerror(errno)
+   return ffi::string(C::strerror(errno))
+end
+
+
+module Scheduler
+   fibers  = nil
+   timers  = nil
+   pollers = nil
+   zombies = nil
+
+   fiber(fiber)
+      item = { fiber }
+      if not fibers then
+         fibers = item
+      else
+         tail = fibers
+         while tail.next do
+            if tail.fiber == fiber then
+               return
+            end
+            tail = tail.next
+         end
+         tail.next = item
+      end
    end
 
-   open(mode = "r", flags = 0644)
-      self.fh = ray::open(self.path, mode, "0%o".format(flags))
+   timer(delay, times = 0, react, data)
+      timer = { delay, times, react, data, when = -1 }
+      if not timers then
+         timers = timer
+      else
+         tail = timers
+         while tail.next do tail = tail.next end
+         tail.next = timer
+      end
    end
 
-   write(data, ofs = 0)
-      return self.fh.write(data, ofs)
+   _poll_cnt = 0
+   _poll_fds = nil
+   _poll_map = { }
+   _poll_dur = -1
+
+   poller(fd, events, react)
+      poller = { fd, events, react }
+      _poll_cnt += 1
+      _poll_fds = nil
+      _poll_map[fd] = poller
    end
 
-   read(len, ofs = 0)
-      return self.fh.read(len, ofs)
+   cancel_poller(fd)
+      if _poll_map[fd] then
+         _poll_map[fd] = nil
+         _poll_fds = nil
+      end
    end
 
-   close()
-      self.fh.close()
-      self.fh = nil
+   now = ffi::new("struct timeval")
+   function gettime()
+      C::gettimeofday(now, nil)
+      return tonumber(now.tv_sec * 1000 + now.tv_usec / 1000)
+   end
+
+   run()
+      _running = true
+
+      timer = timers
+      tloop = gettime()
+      while timer do
+         timer.when = timer.delay + tloop
+         timer = timer.next
+      end
+
+      while _running do
+         -- schedule coroutines
+         while fibers do
+            item = fibers
+            fibers = item.next
+            item.fiber.resume()
+            status = item.fiber.status()
+            if status == "dead" then
+               item.fiber.finish()
+            end
+         end
+
+         -- calculate timers
+         timer = timers
+         tloop = gettime()
+         tnext = tloop + 3600 * 1000
+         while timer do
+            if timer.when == -1 then
+               timer.when = timer.delay + tloop
+            end
+            if tnext > timer.when then
+               tnext = timer.when
+            end
+            timer = timer.next
+         end
+
+         _poll_dur = tnext - tloop
+         if _poll_dur < 0 then
+            _poll_dur = 0
+         end
+
+         -- check poll set
+         if _poll_fds == nil and _poll_cnt > 0 then
+            _poll_fds = ffi::new("struct pollfd[?]", _poll_cnt)
+            i = 0
+            for fd, poller in pollers do
+               _poll_fds[i].fd = poller.fd
+               _poll_fds[i].revents = 0
+               if poller.events.find 'r' then
+                  _poll_fds[i].events |= (C.POLLIN | C.POLLPRI)
+               end
+               if poller.events.find 'w' then
+                  _poll_fds[i].events |= C.POLLOUT
+               end
+               if poller.events.find 'e' then
+                  _poll_fds[i].events |= (C.POLLRDBAND | C.POLLPRI)
+               end
+               i += 1
+            end
+         end
+
+         if not (fibers or timers or _poll_cnt > 0) then
+            -- TODO: idle handler
+            break
+         end
+
+         -- poll
+         rv = C::poll(_poll_fds, _poll_cnt, _poll_dur)
+
+         -- run expired timers
+         timer = timers
+         tloop = gettime()
+         tprev = nil
+         while timer do
+            if timer.when != -1 and tloop >= timer.when then
+               timer.times -= 1
+               if timer.times == 0 then
+                  -- remove from list
+                  if not tprev then
+                     timers = timer.next
+                  else
+                     tprev.next = timer.next
+                  end
+               else
+                  timer.when = timer.delay + twhen
+                  tprev = timer
+               end
+               timer::react()
+               tloop = gettime()
+            else
+               tprev = timer
+            end
+            timer = timer.next
+         end
+
+         -- allow for interrupt
+         if not _running then
+            break
+         end
+
+         -- run poll handlers
+         if rv > 0 then
+            for i=0, _poll_cnt - 1 do
+               fd = _poll_fds[i].fd
+               if _poll_fds[i].revents & C.POLLIN != 0 then
+                  _poll_map[fd]::react("in", fd)
+               end
+
+               if _poll_fds[i].revents & C.POLLOUT != 0 then
+                  _poll_map[fd]::react("out", fd)
+               elseif _poll_fds[i].revents & C.POLLHUP != 0 then
+                  _poll_map[fd]::react("hup", fd)
+               end
+
+               if _poll_fds[i].revents & C.POLLERR != 0 then
+                  _poll_map[fd]::react("err", fd)
+               end
+            end
+         elseif rv < 0 then
+            errno = ffi::errno()
+            if errno == C.EINTR then
+               -- TODO
+            else
+               throw strerror(errno)
+            end
+         end
+      end
+      _running = false
    end
 end
 
-class TCPClient
-   self(socket = ray::tcp())
-      self.socket = socket
+class Fiber
+   fiber_props = setmetatable({ }, { __mode = 'k' })
+
+   static __apply(_, func, ...args)
+      self = coroutine::create(func, ...args)
+      self._complete = [ ]
+      return self
    end
-   read()
-      return self.socket.read()
+
+   static __setindex(self, k, v)
+      props = fiber_props[self]
+      if props == nil then
+         props = { }
+         fiber_props[self] = props
+      end
+      props[k] = v
    end
-   write(data)
-      return self.socket.write(data)
+   static __getindex(self, k)
+      props = fiber_props[self]
+      if props == nil then
+         return nil
+      end
+      return props[k]
    end
-   shutdown()
-      return self.socket.shutdown()
+
+   static current()
+      return coroutine::running()
    end
+
+   resume(...args)
+      return assert(coroutine::resume(self, ...args))
+   end
+
+   ready()
+      Scheduler.fiber(self)
+   end
+
+   join()
+      curr = coroutine::running()
+      self.on_complete =>
+         curr.ready()
+      end
+      yield
+   end
+
+   finish()
+      for _, on_complete in self._complete do
+         on_complete(self)
+      end
+   end
+ 
+   on_complete(func)
+      self._complete.push(func)
+   end
+
+   status()
+      return coroutine::status(self)
+   end
+
+   debug::setmetatable(coroutine::create(function() end), self)
+end
+
+class Socket
+
+   get fd()
+      return self.so_fd
+   end
+   get addr()
+      return self.so_addr
+   end
+
+   self(domain = C.AF_INET, type = C.SOCK_STREAM, proto = C.IPPROTO_TCP)
+      fd = C::socket(domain, type, proto)
+      if fd == -1 then
+         throw strerror(ffi::errno())
+      end
+      self.so_fd   = fd
+      self.so_addr = nil
+   end
+
+   get flags()
+      flags = ffi.C::fcntl(self.so_fd, C.F_GETFL)
+      if flags < 0 then
+         throw strerror(ffi::errno())
+      end
+      return flags
+   end
+
+   set flags(val)
+      stat = C::fcntl(self.so_fd, C.F_SETFL, val)
+      if stat == -1 then
+         throw strerror(ffi::errno())
+      end
+      return stat
+   end
+
+   setoption(key, val)
+      len = ffi::sizeof(val)
+      val = ffi::cast('char *', ffi::new('int[1]', val))
+      C::setsockopt(self.so_fd, C.SOL_SOCKET, key, val, len)
+   end
+
+   reuseaddr(val)
+      if val then
+         v = ffi::cast('char *', ffi::new('int[1]', 1))
+         r = C::setsockopt(
+            self.so_fd, C.SOL_SOCKET, C.SO_REUSEADDR, v, ffi::sizeof(v)
+         )
+         if r == -1 then
+            throw strerror(ffi::errno())
+         end
+         return r
+      else
+         v = ffi::cast('char *', ffi::new('int[1]', 0))
+         r = C::setsockopt(
+            self.so_fd, C.SOL_SOCKET, C.SO_REUSEADDR, v, ffi::sizeof(v)
+         )
+         if r == -1 then
+            throw strerror(ffi::errno())
+         end
+         return r
+      end
+   end
+
+   set nonblocking(val)
+      if val then
+         self.flags |= C.O_NONBLOCK
+      else
+         self.flags &= ~C.O_NONBLOCK
+      end
+   end
+   get nonblocking()
+      self.flags & C.O_NONBLOCK
+   end
+
+   static getaddrinfo(host, port, family = C.AF_INET)
+      entries = [ ]
+
+      info = ffi::new('struct addrinfo*[1]')
+      hint = ffi::new('addrinfo')
+
+      hint.ai_family   = family
+      hint.ai_socktype = C.SOCK_STREAM
+
+      retv = C::getaddrinfo(host, tostring(port), hint, info)
+      if retv == -1 then
+         throw strerror(ffi::errno())
+      end
+
+      iter = info[0]
+      while iter != nil do
+         addr = iter.ai_addr
+         if addr.sa_family == C.AF_INET then
+            entries.push(ffi::cast("sockaddr_in*", addr))
+         elseif addr.sa_family == C.AF_UNIX then
+            entries.push(ffi::cast("sockaddr_un*", addr))
+         else
+            throw "unknown address family ${tonumber(addr)}"
+         end
+         iter = iter.ai_next
+      end
+
+      --ffi::gc(hint, C.freeaddrinfo)
+      --ffi::gc(info, C.freeaddrinfo)
+
+      return entries
+   end
+end
+
+class TCPSocket extends Socket
+   self()
+      super(C.AF_INET, C.SOCK_STREAM, C.IPPROTO_TCP)
+   end
+end
+
+class TCPClient extends TCPSocket
    connect(host, port)
-      return self.socket.connect(host, port)
+      info = ffi::new('struct addrinfo*[1]')
+      hint = ffi::new('struct addrinfo')
+
+      hint.ai_family   = C.AF_INET
+      hint.ai_socktype = C.SOCK_STREAM
+
+      retv = C::getaddrinfo(host, tostring(port), hint, info)
+      if retv == -1 then
+         throw strerror(ffi::errno())
+      end
+
+      addr = info[0]
+      stat = C::connect(self.so_fd, addr.ai_addr, addr.ai_addrlen)
+      if stat == -1 then
+         throw strerror(ffi::errno())
+      end
+      self.so_addr = addr
+   end
+
+   read(buf, len)
+      curr, main = coroutine::running()
+      if main then
+         return C::read(self.so_fd, buf, len)
+      else
+         local rv
+         Scheduler.readable self.so_fd, (ev) =>
+            if ev == "err" then
+               rv = -1
+            else
+               rv = C::read(self.so_fd, buf, len)
+            end
+            curr.ready()
+         end
+         yield
+         return rv
+      end
+   end
+
+   get readable()
+      retv = 0
+      curr = coroutine::running()
+      Scheduler.poller self.so_fd, 're', (ev) =>
+         Scheduler.cancel_poller(self.so_fd)
+         if ev == 'err' then
+            retv = -1
+         else
+            retv = 1
+         end
+         curr.ready()
+      end
+      yield
+      return retv
+   end
+
+   get writable()
+      retv = 0
+      curr = coroutine::running()
+      Scheduler.poller self.so_fd, 'we', (ev) =>
+         Scheduler.cancel_poller(self.so_fd)
+         if ev == 'err' then
+            retv = -1
+         else
+            retv = 1
+         end
+         curr.ready()
+      end
+      yield
+      return retv
+   end
+   write(buf)
+      if typeof buf == 'cdata' then
+         buf = ffi::string(buf)
+      else
+         buf = tostring(buf)
+      end
+      while #buf > 0 do 
+         if self.writable > 0 then
+            got = C::write(self.so_fd, buf, #buf)
+            buf = buf.sub(got)
+         else
+            return -1
+         end
+      end
    end
    close()
-      return self.socket.close()
+      return C::close(self.so_fd)
    end
 end
 
-class TCPServer
+class TCPServer extends TCPSocket
    self(host, port)
-      self.socket = ray::tcp()
-      self.socket.bind(host, port)
+      super()
+      if host and port then
+         self.bind(host, port)
+      end
    end
+
+   bind(host, port)
+      info = ffi::new('struct addrinfo*[1]')
+      hint = ffi::new('struct addrinfo')
+
+      hint.ai_family   = C.AF_INET
+      hint.ai_socktype = C.SOCK_STREAM
+
+      retv = C::getaddrinfo(host, tostring(port), hint, info)
+      if retv == -1 then
+         throw strerror(ffi::errno())
+      end
+
+      addr = info[0]
+      stat = C::bind(self.so_fd, addr.ai_addr, addr.ai_addrlen)
+
+      if stat == -1 then
+         throw strerror(ffi::errno())
+      end
+      self.so_addr = addr
+      return stat
+   end
+
    listen(backlog = 128)
-      self.socket.listen(backlog)
+      stat = C::listen(self.so_fd, backlog)
+      if stat == -1 then
+         throw strerror(ffi::errno())
+      end
+      return stat
    end
+
    accept()
-      client = self.socket.accept()
-      return TCPClient(client)
+      addr = ffi::new('struct sockaddr')
+      addr.sa_family = self.so_addr.ai_family
+      addr_len = ffi::new('socklen_t[1]', ffi::sizeof(addr))
+
+      curr, main = coroutine::running()
+      local sock
+      if main then
+         so_fd = C::accept(self.so_fd, addr, addr_len)
+         if so_fd == -1 then
+            throw strerror(ffi::errno())
+         end
+         sock = setmetatable({ }, TCPClient)
+
+         sock.so_fd   = so_fd
+         sock.so_addr = addr
+      else
+         Scheduler.readable self.so_fd, (ev) =>
+            so_fd = C::accept(self.so_fd, addr, addr_len)
+            if so_fd == -1 then
+               throw strerror(ffi::errno())
+            end
+            sock = setmetatable({ }, TCPClient)
+
+            sock.so_fd   = so_fd
+            sock.so_addr = addr
+
+            curr.ready()
+         end
+         yield
+      end
+      return sock
    end
+
    close()
-      self.socket.close()
-      self.socket = nil
+      return C::close(self.so_fd)
    end
 end
 
-function async(block)
-   fiber = ray::fiber(block)
+function async(body)
+   fiber = Fiber(body)
    fiber.ready()
    return fiber
 end
@@ -76,16 +555,19 @@ function await(fiber)
    return fiber.join()
 end
 
-function sleep(timeout)
-   timer = ray::timer()
-   timer.start timeout, 0
-   timer.wait()
-   timer.stop()
+function sleep(msec)
+   curr = coroutine::running()
+   Scheduler.timer msec, 1, =>
+      curr.ready()
+   end
+   yield
 end
 
-function run(main, ...args)
-   ray::fiber(main, ...args).ready()
-   ray::run()
+function schedule(...args)
+   Scheduler.run(...args)
 end
 
-export run
+export Scheduler, Fiber
+export Socket, TCPSocket, TCPServer, TCPClient
+export schedule, sleep, async, await, strerror
+
