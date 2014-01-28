@@ -1,5 +1,6 @@
 local bc   = require('bytecode')
 local util = require('util')
+local bit  = require('bit')
 
 -- invert these since usually we branch if *not* condition
 local cmpop = {
@@ -47,12 +48,20 @@ function match:CallExpression(node, base, want, tail)
    self.ctx.freereg = free
    if last == MULTIRES then
       if tail then
+         if self.ctx.scope.upval then
+            self.ctx.scope.upval = nil
+            self.ctx:op_uclo()
+         end
          self.ctx:op_callmt(base, narg - 1)
       else
          self.ctx:op_callm(base, want, narg - 1)
       end
    else
       if tail then
+         if self.ctx.scope.upval then
+            self.ctx.scope.upval = nil
+            self.ctx:op_uclo()
+         end
          self.ctx:op_callt(base, narg)
       else
          self.ctx:op_call(base, want, narg)
@@ -160,11 +169,10 @@ function match:Identifier(node, dest, want)
          dest = dest or self.ctx:nextreg()
          self.ctx:op_uget(dest, node.name)
       else
-         local var = self.ctx.actvars[node.name]
          if not dest then
-            dest = var.idx
-         elseif dest ~= var.idx then
-            self.ctx:op_move(dest, var.idx)
+            dest = info.idx
+         elseif dest ~= info.idx then
+            self.ctx:op_move(dest, info.idx)
          end
       end
    else
@@ -184,9 +192,9 @@ function match:BlockStatement(node)
    end
 end
 function match:DoStatement(node)
-   self:block_enter()
+   self.ctx:enter()
    self:emit(node.body)
-   self:block_leave()
+   self.ctx:leave()
 end
 function match:IfStatement(node, nest, exit)
    local free = self.ctx.freereg
@@ -208,17 +216,19 @@ function match:IfStatement(node, nest, exit)
       end
    end
 
-   local block_exit = node.alternate and exit
-
-   self:block_enter()
+   self.ctx:enter()
    self:emit(node.consequent)
-   self:block_leave(block_exit)
+   self.ctx:leave()
 
-   self.ctx:here(altl)
    if node.alternate then
-      self:block_enter()
+      self.ctx:jump(exit)
+   end
+   self.ctx:here(altl)
+
+   if node.alternate then
+      self.ctx:enter()
       self:emit(node.alternate, true, exit)
-      self:block_leave()
+      self.ctx:leave()
    end
    if not nest then
       self.ctx:here(exit)
@@ -390,7 +400,7 @@ function match:MemberExpression(node, base, want)
    if node.computed then
       expr = self:emit(node.property, expr, 1)
    elseif node.property.kind == 'Identifier' then
-      self.ctx:op_load(expr, node.property.name)
+      expr = node.property.name
    else
       expr = self:emit(node.property, expr, 1)
    end
@@ -408,7 +418,6 @@ function match:FunctionDeclaration(node)
       self.ctx:param(node.params[i].name)      
    end
    self:emit(node.body)
-
    self.ctx = self.ctx.outer
 
    local dest
@@ -437,9 +446,6 @@ function match:FunctionExpression(node, dest)
       end
    end
    self:emit(node.body)
-   if not self.ctx.explret then
-      self.ctx:op_ret0()
-   end
 
    self.ctx = self.ctx.outer
    self.ctx:op_fnew(dest, func.idx)
@@ -449,7 +455,7 @@ function match:FunctionExpression(node, dest)
 end
 function match:WhileStatement(node)
    local free = self.ctx.freereg
-   self:block_enter()
+   self.ctx:enter()
 
    local loop = util.genid()
    local exit = util.genid()
@@ -474,15 +480,15 @@ function match:WhileStatement(node)
 
    self.ctx:loop(exit)
    self:emit(node.body)
-   self.ctx:jump(loop)
+
+   self.ctx:jump(loop, self.ctx.scope.upval)
+   self.ctx.scope.upval = nil
+   self.ctx:leave()
    self.ctx:here(exit)
-   self:block_leave()
    self.exit = saveexit
-   self.ctx.freereg = free
 end
 function match:RepeatStatement(node)
-   local free = self.ctx.freereg
-   self:block_enter()
+   self.ctx:enter()
 
    local loop = util.genid()
    local exit = util.genid()
@@ -492,6 +498,7 @@ function match:RepeatStatement(node)
 
    self.ctx:here(loop)
    self.ctx:loop(exit)
+   self.ctx:enter()
    self:emit(node.body)
 
    local treg = self.ctx:nextreg()
@@ -504,29 +511,41 @@ function match:RepeatStatement(node)
       self.ctx:op_comp(cmpop[o], a, b)
    else
       self:emit(test, treg, 1)
-      self.ctx.freereg = free
       self.ctx:op_test(false, treg)
    end
 
-   self.ctx:jump(loop)
+   if self.ctx.scope.upval then
+      local uclo = util.genid()
+      self.ctx:jump(uclo)
+      self.ctx:jump(exit, true)
+      self.ctx:here(uclo)
+      self.ctx:jump(loop, true)
+      self.ctx.scope.upval = nil
+      self.ctx:leave()
+   else
+      self.ctx:jump(loop)
+      self.ctx:leave()
+   end
+   self.ctx:leave()
    self.ctx:here(exit)
-   self:block_leave()
    self.exit = saveexit
-   self.ctx.freereg = free
 end
 function match:BreakStatement()
-   if self.exit then
-      return self.ctx:jump(self.exit)
-   else
-      error("no loop to break")
-   end
+   assert(self.exit, "no loop to break")
+   self.ctx:jump(self.exit, self.ctx.scope.upval)
 end
 function match:ForStatement(node)
    local free = self.ctx.freereg
-   self:block_enter(3)
    local init = node.init
-   local base = self.ctx:nextreg(4)
-   local var_base = base + 3
+   self.ctx:enter()
+   local base = self.ctx:nextreg(3)
+
+   self.ctx:newvar("(for index)", base)
+   self.ctx:newvar("(for limit)", base + 1)
+   self.ctx:newvar("(for step)",  base + 2)
+
+   self.ctx:enter()
+   local var_base = self.ctx:nextreg()
    local name = init.id.name
 
    local saveexit = self.exit
@@ -542,27 +561,34 @@ function match:ForStatement(node)
    end
    local loop = self.ctx:op_fori(base)
    self:emit(node.body)
+   self.ctx:leave()
    self.ctx:op_forl(base, loop)
+   self.ctx:leave()
    self.ctx:here(self.exit)
    self.exit = saveexit
-   self:block_leave()
    self.ctx.freereg = free
 end
 function match:ForInStatement(node)
    local free = self.ctx.freereg
-   self:block_enter(3)
 
    local vars = node.init.names
    local expr = node.iter
    local loop = util.genid()
 
-   local base = self.ctx:nextreg(#vars + 3)
-   local iter = base + 3
+   self.ctx:enter()
+   local base = self.ctx:nextreg(3)
+
+   self.ctx:newvar("(for generator)", base)
+   self.ctx:newvar("(for state)", base + 1)
+   self.ctx:newvar("(for control)",  base + 2)
+
+   self.ctx:enter()
+   local iter = self.ctx:nextreg(#vars)
 
    local saveexit = self.exit
    self.exit = util.genid()
 
-   self:emit(expr, base, 3) -- func, state, ctl
+   self:emit(expr, base, 3) -- want 3: generator, state, control
    self.ctx:jump(loop)
 
    for i=1, #vars do
@@ -573,11 +599,12 @@ function match:ForInStatement(node)
    local ltop = self.ctx:here(util.genid())
    self:emit(node.body)
    self.ctx:here(loop)
+   self.ctx:leave()
    self.ctx:op_iterc(iter, #vars + 2)
    self.ctx:op_iterl(iter, ltop)
+   self.ctx:leave(base)
    self.ctx:here(self.exit)
    self.exit = saveexit
-   self:block_leave()
    self.ctx.freereg = free
 end
 function match:ReturnStatement(node)
@@ -592,24 +619,23 @@ function match:ReturnStatement(node)
          self:emit(arg, base + i - 1, narg + 1 - i)
       end
    end
-   if narg == 0 then
-      self.ctx:op_ret0()
-   elseif narg == 1 then
-      self.ctx:op_ret1(base)
-   else
-      self.ctx:op_ret(base, narg)
+   if bit.band(self.ctx.flags, bc.Proto.CHILD) > 0 then 
+      self.ctx:op_uclo()
+   end
+   if not self.ctx:is_tcall() then
+      if narg == 0 then
+         self.ctx:op_ret0()
+      elseif narg == 1 then
+         self.ctx:op_ret1(base)
+      else
+         self.ctx:op_ret(base, narg)
+      end
    end
    self.ctx.freereg = free
-   if self.ctx:is_root_scope() then
-      self.ctx.explret = true
-   end
 end
 function match:Chunk(tree, name)
    for i=1, #tree.body do
       self:emit(tree.body[i])
-   end
-   if not self.ctx.explret then
-      self.ctx:op_ret0()
    end
 end
 
@@ -617,21 +643,7 @@ local function generate(tree, name)
    local self = { line = 0 }
    self.main = bc.Proto.new(bc.Proto.VARARG)
    self.dump = bc.Dump.new(self.main, name)
-   self.ctx = self.main
-   self.savereg = { }
-
-   function self:block_enter(used_reg)
-      used_reg = used_reg or 0
-      self.savereg[#self.savereg + 1] = self.ctx.freereg + used_reg
-      self.ctx:enter()
-   end
-
-   function self:block_leave(exit)
-      local free = self.savereg[#self.savereg]
-      self.savereg[#self.savereg] = nil
-      self.ctx:close_block_uvals(free, exit)
-      self.ctx:leave()
-   end
+   self.ctx  = self.main
 
    function self:emit(node, ...)
       if type(node) ~= "table" then
