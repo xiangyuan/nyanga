@@ -12,8 +12,12 @@ end
 module Scheduler
    fibers  = nil
    timers  = nil
-   pollers = nil
    zombies = nil
+   pollers = { }
+
+   poll_cnt = 0
+   poll_fds = nil
+   poll_dur = -1
 
    fiber(fiber)
       item = { fiber }
@@ -42,22 +46,17 @@ module Scheduler
       end
    end
 
-   _poll_cnt = 0
-   _poll_fds = nil
-   _poll_map = { }
-   _poll_dur = -1
-
    poller(fd, events, react)
       poller = { fd, events, react }
-      _poll_cnt += 1
-      _poll_fds = nil
-      _poll_map[fd] = poller
+      poll_cnt += 1
+      poll_fds = nil
+      pollers[fd] = poller
    end
 
    cancel_poller(fd)
-      if _poll_map[fd] then
-         _poll_map[fd] = nil
-         _poll_fds = nil
+      if pollers[fd] then
+         pollers[fd] = nil
+         poll_fds = nil
       end
    end
 
@@ -103,38 +102,38 @@ module Scheduler
             timer = timer.next
          end
 
-         _poll_dur = tnext - tloop
-         if _poll_dur < 0 then
-            _poll_dur = 0
+         poll_dur = tnext - tloop
+         if poll_dur < 0 then
+            poll_dur = 0
          end
 
          -- check poll set
-         if _poll_fds == nil and _poll_cnt > 0 then
-            _poll_fds = ffi::new("struct pollfd[?]", _poll_cnt)
+         if poll_fds == nil and poll_cnt > 0 then
+            poll_fds = ffi::new("struct pollfd[?]", poll_cnt)
             i = 0
             for fd, poller in pollers do
-               _poll_fds[i].fd = poller.fd
-               _poll_fds[i].revents = 0
+               poll_fds[i].fd = poller.fd
+               poll_fds[i].revents = 0
                if poller.events.find 'r' then
-                  _poll_fds[i].events |= (C.POLLIN | C.POLLPRI)
+                  poll_fds[i].events |= (C.POLLIN | C.POLLPRI)
                end
                if poller.events.find 'w' then
-                  _poll_fds[i].events |= C.POLLOUT
+                  poll_fds[i].events |= C.POLLOUT
                end
                if poller.events.find 'e' then
-                  _poll_fds[i].events |= (C.POLLRDBAND | C.POLLPRI)
+                  poll_fds[i].events |= (C.POLLRDBAND | C.POLLPRI)
                end
                i += 1
             end
          end
 
-         if not (fibers or timers or _poll_cnt > 0) then
+         if not (fibers or timers or poll_cnt > 0) then
             -- TODO: idle handler
             break
          end
 
          -- poll
-         rv = C::poll(_poll_fds, _poll_cnt, _poll_dur)
+         rv = C::poll(poll_fds, poll_cnt, poll_dur)
 
          -- run expired timers
          timer = timers
@@ -169,20 +168,21 @@ module Scheduler
 
          -- run poll handlers
          if rv > 0 then
-            for i=0, _poll_cnt - 1 do
-               fd = _poll_fds[i].fd
-               if _poll_fds[i].revents & C.POLLIN != 0 then
-                  _poll_map[fd]::react("in", fd)
+            pfds = poll_fds
+            for i=0, poll_cnt - 1 do
+               fd = pfds[i].fd
+               if (pfds[i].revents & C.POLLIN) != 0 then
+                  pollers[fd]::react("in", fd)
                end
 
-               if _poll_fds[i].revents & C.POLLOUT != 0 then
-                  _poll_map[fd]::react("out", fd)
-               elseif _poll_fds[i].revents & C.POLLHUP != 0 then
-                  _poll_map[fd]::react("hup", fd)
+               if (pfds[i].revents & C.POLLOUT) != 0 then
+                  pollers[fd]::react("out", fd)
+               elseif (pfds[i].revents & C.POLLHUP) != 0 then
+                  pollers[fd]::react("hup", fd)
                end
 
-               if _poll_fds[i].revents & C.POLLERR != 0 then
-                  _poll_map[fd]::react("err", fd)
+               if (pfds[i].revents & C.POLLERR) != 0 then
+                  pollers[fd]::react("err", fd)
                end
             end
          elseif rv < 0 then
@@ -265,17 +265,13 @@ class Socket
    get fd()
       return self.so_fd
    end
-   get addr()
-      return self.so_addr
-   end
 
    self(domain = C.AF_INET, type = C.SOCK_STREAM, proto = C.IPPROTO_TCP)
       fd = C::socket(domain, type, proto)
       if fd == -1 then
          throw strerror(ffi::errno())
       end
-      self.so_fd   = fd
-      self.so_addr = nil
+      self.so_fd = fd
    end
 
    get flags()
@@ -330,87 +326,7 @@ class Socket
       end
    end
    get nonblocking()
-      self.flags & C.O_NONBLOCK
-   end
-
-   static getaddrinfo(host, port, family = C.AF_INET)
-      entries = [ ]
-
-      info = ffi::new('struct addrinfo*[1]')
-      hint = ffi::new('addrinfo')
-
-      hint.ai_family   = family
-      hint.ai_socktype = C.SOCK_STREAM
-
-      retv = C::getaddrinfo(host, tostring(port), hint, info)
-      if retv == -1 then
-         throw strerror(ffi::errno())
-      end
-
-      iter = info[0]
-      while iter != nil do
-         addr = iter.ai_addr
-         if addr.sa_family == C.AF_INET then
-            entries.push(ffi::cast("sockaddr_in*", addr))
-         elseif addr.sa_family == C.AF_UNIX then
-            entries.push(ffi::cast("sockaddr_un*", addr))
-         else
-            throw "unknown address family ${tonumber(addr)}"
-         end
-         iter = iter.ai_next
-      end
-
-      --ffi::gc(hint, C.freeaddrinfo)
-      --ffi::gc(info, C.freeaddrinfo)
-
-      return entries
-   end
-end
-
-class TCPSocket extends Socket
-   self()
-      super(C.AF_INET, C.SOCK_STREAM, C.IPPROTO_TCP)
-   end
-end
-
-class TCPClient extends TCPSocket
-   connect(host, port)
-      info = ffi::new('struct addrinfo*[1]')
-      hint = ffi::new('struct addrinfo')
-
-      hint.ai_family   = C.AF_INET
-      hint.ai_socktype = C.SOCK_STREAM
-
-      retv = C::getaddrinfo(host, tostring(port), hint, info)
-      if retv == -1 then
-         throw strerror(ffi::errno())
-      end
-
-      addr = info[0]
-      stat = C::connect(self.so_fd, addr.ai_addr, addr.ai_addrlen)
-      if stat == -1 then
-         throw strerror(ffi::errno())
-      end
-      self.so_addr = addr
-   end
-
-   read(buf, len)
-      curr, main = coroutine::running()
-      if main then
-         return C::read(self.so_fd, buf, len)
-      else
-         local rv
-         Scheduler.readable self.so_fd, (ev) =>
-            if ev == "err" then
-               rv = -1
-            else
-               rv = C::read(self.so_fd, buf, len)
-            end
-            curr.ready()
-         end
-         yield
-         return rv
-      end
+      return (self.flags & C.O_NONBLOCK) != 0
    end
 
    get readable()
@@ -432,6 +348,7 @@ class TCPClient extends TCPSocket
    get writable()
       retv = 0
       curr = coroutine::running()
+      assert(self.so_fd, "socket not open")
       Scheduler.poller self.so_fd, 'we', (ev) =>
          Scheduler.cancel_poller(self.so_fd)
          if ev == 'err' then
@@ -444,6 +361,54 @@ class TCPClient extends TCPSocket
       yield
       return retv
    end
+
+end
+
+class TCPSocket extends Socket
+   self()
+      super(C.AF_INET, C.SOCK_STREAM, C.IPPROTO_TCP)
+   end
+end
+
+class TCPClient extends TCPSocket
+   connect(host, port)
+      port = port and tostring(port) or nil
+      info = ffi::new('struct addrinfo*[1]')
+      hint = ffi::new('struct addrinfo')
+
+      hint.ai_family   = C.AF_INET
+      hint.ai_socktype = C.SOCK_STREAM
+
+      retv = C::getaddrinfo(host, port, hint, info)
+      if retv == -1 then
+         throw strerror(ffi::errno())
+      end
+
+      addr = info[0]
+      stat = C::connect(self.so_fd, addr.ai_addr, addr.ai_addrlen)
+      if stat == -1 then
+         throw strerror(ffi::errno())
+      end
+
+      C::freeaddrinfo(info[0])
+   end
+
+   read(buf, len)
+      curr, main = coroutine::running()
+      if main then
+         return C::read(self.so_fd, buf, len)
+      else
+         local rv
+         if self.readable then
+            if ev == "err" then
+               rv = -1
+            else
+               rv = C::read(self.so_fd, buf, len)
+            end
+         end
+         return rv
+      end
+   end
    write(buf)
       if typeof buf == 'cdata' then
          buf = ffi::string(buf)
@@ -453,7 +418,7 @@ class TCPClient extends TCPSocket
       while #buf > 0 do 
          if self.writable > 0 then
             got = C::write(self.so_fd, buf, #buf)
-            buf = buf.sub(got)
+            buf = buf.sub(tonumber(got) + 1)
          else
             return -1
          end
@@ -473,13 +438,14 @@ class TCPServer extends TCPSocket
    end
 
    bind(host, port)
+      port = port and tostring(port) or nil
       info = ffi::new('struct addrinfo*[1]')
       hint = ffi::new('struct addrinfo')
 
       hint.ai_family   = C.AF_INET
       hint.ai_socktype = C.SOCK_STREAM
 
-      retv = C::getaddrinfo(host, tostring(port), hint, info)
+      retv = C::getaddrinfo(host, port, hint, info)
       if retv == -1 then
          throw strerror(ffi::errno())
       end
@@ -490,7 +456,8 @@ class TCPServer extends TCPSocket
       if stat == -1 then
          throw strerror(ffi::errno())
       end
-      self.so_addr = addr
+
+      C::freeaddrinfo(info[0])
       return stat
    end
 
@@ -504,34 +471,29 @@ class TCPServer extends TCPSocket
 
    accept()
       addr = ffi::new('struct sockaddr')
-      addr.sa_family = self.so_addr.ai_family
+      addr.sa_family = C.AF_INET
       addr_len = ffi::new('socklen_t[1]', ffi::sizeof(addr))
 
       curr, main = coroutine::running()
       local sock
       if main then
-         so_fd = C::accept(self.so_fd, addr, addr_len)
-         if so_fd == -1 then
+         fd = C::accept(self.so_fd, addr, addr_len)
+         if fd == -1 then
             throw strerror(ffi::errno())
          end
-         sock = setmetatable({ }, TCPClient)
 
-         sock.so_fd   = so_fd
-         sock.so_addr = addr
+         sock = setmetatable({ }, TCPClient)
+         sock.so_fd = fd
       else
-         Scheduler.readable self.so_fd, (ev) =>
-            so_fd = C::accept(self.so_fd, addr, addr_len)
-            if so_fd == -1 then
+         if self.readable then
+            fd = C::accept(self.so_fd, addr, addr_len)
+            if fd == -1 then
                throw strerror(ffi::errno())
             end
+
             sock = setmetatable({ }, TCPClient)
-
-            sock.so_fd   = so_fd
-            sock.so_addr = addr
-
-            curr.ready()
+            sock.so_fd = fd
          end
-         yield
       end
       return sock
    end
