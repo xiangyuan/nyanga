@@ -468,6 +468,16 @@ local function import(from, ...)
    return unpack(list)
 end
 
+local system
+local function yield(...)
+   local curr, main = coroutine.running()
+   if main or not curr then
+      system.schedule(...)
+   else
+      coroutine.yield(...)
+   end
+end
+
 GLOBAL = setmetatable({
    try    = try;
    Array  = Array;
@@ -478,7 +488,7 @@ GLOBAL = setmetatable({
    class  = class;
    module = module;
    import = import;
-   yield  = coroutine.yield;
+   yield  = yield;
    throw  = error;
    include = include;
    __range__  = range;
@@ -489,13 +499,12 @@ GLOBAL = setmetatable({
    __is__  = __is__;
 }, { __index = _G })
 
---local system = require('system.nga')
---package.loaded['@system'] = system
+system = require('lib/system.nga')
+package.loaded['@system'] = system
 
 local function run(code, ...)
    setfenv(code, GLOBAL)
    code(...)
-   --system.run(code)
 end
 
 local usage = "usage: %s [options]... [script [args]...].\
@@ -551,8 +560,10 @@ local function runopt(args)
       file:close()
    end
    local main = assert(loadstring(compiler.compile(code, name, opts), name))
-   setfenv(main, GLOBAL)
-   main(unpack(args))
+   if not opts['-b'] then
+      setfenv(main, GLOBAL)
+      main(unpack(args))
+   end
    --system.run(main, unpack(args))
 end
 
