@@ -118,11 +118,11 @@ local patt = [[
    ) -> continueStmt
 
    yield_stmt <- (
-      "yield" <idsafe> {| (s  <expr_list>)? |}
+      "yield" <idsafe> {| (HS  <expr_list>)? |}
    ) -> yieldStmt
 
    return_stmt <- (
-      "return" <idsafe> {| (s <expr_list>)? |}
+      "return" <idsafe> {| (HS <expr_list>)? |}
    ) -> returnStmt
 
    throw_stmt <- (
