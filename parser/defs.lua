@@ -141,7 +141,7 @@ function defs.tableExpr(members)
 end
 function defs.regexExpr(expr, flags)
    local rx = require('pcre')
-   expr = string.gsub(expr, "(\\[rnt\\])", strEscape)
+   expr = string.gsub(expr, "(\\[rnt\\])", defs.escape)
    assert(rx.compile(expr))
    return { type = "RegExp", pattern = expr, flags = flags }
 end
