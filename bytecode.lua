@@ -390,13 +390,13 @@ function Proto.__index:const(val)
    return self.kcache[val].idx
 end
 function Proto.__index:line(ln)
-   self.currline = ln
    if self.firstline == 0 then
       self.firstline = ln
    end
    if ln > self.currline then
       self.numlines = ln - self.firstline
    end
+   self.currline = ln
 end
 function Proto.__index:emit(op, a, b, c)
    --print(("Ins:%s %s %s %s"):format(BC[op], a, b, c))
@@ -597,6 +597,9 @@ end
 function Proto.__index:jump(name, uclo)
    local base = self:getbase()
    local oper = uclo and BC.UCLO or BC.JMP
+   if uclo then
+      base = self.scope.basereg
+   end
    if self.labels[name] then
       -- backward jump
       local offs = self.labels[name]
