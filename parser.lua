@@ -218,9 +218,9 @@ local patt = [[
       (<module_body_stmt> (<sep> s <module_body_stmt>)* <sep>?)?
    |}
 
-   module_body_stmt <- (
+   module_body_stmt <- ({} (
       <module_member> / <include_stmt> / !<return_stmt> <stmt>
-   )
+   )) -> stmt
 
    module_member <- (
       <coro_prop> / <prop_defn>
@@ -236,9 +236,9 @@ local patt = [[
       (<class_body_stmt> (<sep> s <class_body_stmt>)* <sep>?)?
    |}
 
-   class_body_stmt <- (
+   class_body_stmt <- ({} (
       <class_member> / <include_stmt> / !<return_stmt> <stmt>
-   )
+   )) -> stmt
 
    class_member <- (
       ({"static"} <idsafe> s / '' -> "virt") (<coro_prop> / <prop_defn>)

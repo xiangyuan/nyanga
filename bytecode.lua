@@ -343,6 +343,7 @@ function Proto.__index:leave(base)
    self.freereg = self:getbase()
 end
 function Proto.__index:close()
+   self.numlines = self.currline - self.firstline
    if #self.code > 0 then
       local last = self.code[#self.code][1]
       for i=1, #self.scope.actvars do
@@ -363,7 +364,6 @@ end
 function Proto.__index:child(flags)
    self.flags = bit.bor(self.flags, Proto.CHILD)
    local child = Proto.new(flags, self)
-   child.firstline = self.currline
    child.idx = #self.kobj
    self.kobj[child] = #self.kobj
    self.kobj[#self.kobj + 1] = child
@@ -394,9 +394,8 @@ function Proto.__index:line(ln)
       self.firstline = ln
    end
    if ln > self.currline then
-      self.numlines = ln - self.firstline
+      self.currline = ln
    end
-   self.currline = ln
 end
 function Proto.__index:emit(op, a, b, c)
    --print(("Ins:%s %s %s %s"):format(BC[op], a, b, c))
