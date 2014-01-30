@@ -50,9 +50,10 @@ end
 exports.dump = dump
 
 local ID = 0
-exports.genid = function()
+exports.genid = function(prefix)
    ID = ID + 1
-   return '__'..ID
+   prefix = prefix or '_'
+   return '_'..prefix..ID
 end
 
 function exports.extend(base, with)
