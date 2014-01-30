@@ -304,6 +304,7 @@ function Proto.new(flags, outer)
       freereg = 0;
       varinfo = { };
       currline  = 1;
+      lastline  = 1;
       firstline = 0;
       numlines  = 1;
       framesize = 0;
@@ -343,7 +344,7 @@ function Proto.__index:leave(base)
    self.freereg = self:getbase()
 end
 function Proto.__index:close()
-   self.numlines = self.currline - self.firstline
+   self.numlines = self.lastline - self.firstline
    if #self.code > 0 then
       local last = self.code[#self.code][1]
       for i=1, #self.scope.actvars do
@@ -393,9 +394,10 @@ function Proto.__index:line(ln)
    if self.firstline == 0 then
       self.firstline = ln
    end
-   if ln > self.currline then
-      self.currline = ln
+   if ln > self.lastline then
+      self.lastline = ln
    end
+   self.currline = ln
 end
 function Proto.__index:emit(op, a, b, c)
    --print(("Ins:%s %s %s %s"):format(BC[op], a, b, c))
