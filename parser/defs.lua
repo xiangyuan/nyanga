@@ -139,12 +139,14 @@ end
 function defs.tableExpr(members)
    return { type = "TableExpression", members = members }
 end
+--[[
 function defs.regexExpr(expr, flags)
    local rx = require('pcre')
    expr = string.gsub(expr, "(\\[rnt\\])", defs.escape)
    assert(rx.compile(expr))
    return { type = "RegExp", pattern = expr, flags = flags }
 end
+--]]
 function defs.ifStmt(test, cons, altn)
    if cons.type ~= "BlockStatement" then
       cons = defs.blockStmt{ cons }
@@ -387,6 +389,24 @@ local op_info = {
    ["#_"]  = { 16, 'R' },
 }
 
+local patt_op_info = {
+   ["~>"]  = { 1, 'L' },
+   ["->"]  = { 1, 'L' },
+   ["+>"]  = { 1, 'L' },
+
+   ["|"]   = { 2, 'L' },
+
+   ["&_"]  = { 3, 'R' },
+   ["!_"]  = { 3, 'R' },
+
+   ["+"]   = { 3, 'L' },
+   ["*"]   = { 3, 'L' },
+   ["?"]   = { 3, 'L' },
+
+   ["^+"]  = { 4, 'R' },
+   ["^-"]  = { 4, 'R' },
+}
+
 local shift = table.remove
 
 local function debug(t)
@@ -421,6 +441,119 @@ end
 function defs.infixExpr(exp)
    return fold_expr(exp, 0)
 end
+
+function defs.regexExpr(expr)
+   return { type = "RegExp", pattern = expr }
+end
+
+function defs.grammarDecl(name, body)
+   return { type = "GrammarDeclaration", id = name, body = body }
+end
+function defs.ruleDecl(name, expr)
+   return { type = "RuleDeclaration", name = name, pattern = expr }
+end
+
+function defs.pattExpr(pass)
+   return pass -- for now
+end
+
+local function fold_left(list, func)
+   local accu = table.remove(list, 1)
+   for i=1, #list do
+      accu = func(accu, list[i])
+   end
+   return accu
+end
+function defs.pattAlt(list)
+   return fold_left(list, function(a, b)
+      return { type = "PatternAlternate", left = a, right = b }
+   end)
+end
+function defs.pattSeq(list)
+   return fold_left(list, function(a, b)
+      return { type = "PatternSequence", left = a, right = b }
+   end)
+end
+function defs.pattAny()
+   return { type = "PatternAny" }
+end
+function defs.pattAssert(oper, term)
+   return { type = "PatternAssert", operator = oper, argument = term }
+end
+
+function defs.pattSuffix(term, tail)
+   if #tail == 0 then
+      return term
+   end
+   local left = term
+   for i=1, #tail do
+      tail[i].left = left
+      left = tail[i]
+   end
+   return left
+end
+function defs.pattProd(oper, expr)
+   return { type = "PatternProduction", operator = oper, right = expr }
+end
+function defs.pattOpt(oper)
+   local count
+   if oper == '?' then
+      count = -1
+   elseif oper == '*' then
+      count = 0
+   else assert(oper == '+')
+      count = 1
+   end
+   return { type = "PatternRepeat", count = count }
+end
+function defs.pattRep(count)
+   return { type = "PatternRepeat", count = tonumber(count) }
+end
+
+function defs.pattCaptSubst(expr)
+   return { type = "PatternCaptSubst", pattern = expr }
+end
+function defs.pattCaptTable(expr)
+   return { type = "PatternCaptTable", pattern = expr }
+end
+function defs.pattCaptBasic(expr)
+   return { type = "PatternCaptBasic", pattern = expr }
+end
+function defs.pattCaptConst(expr)
+   return { type = "PatternCaptConst", argument = expr }
+end
+function defs.pattCaptGroup(name, expr)
+   return { type = "PatternCaptGroup", name = name, pattern = expr }
+end
+function defs.pattCaptBack(name)
+   return { type = "PatternCaptBack", name = name }
+end
+function defs.pattRef(name)
+   return { type = "PatternReference", name = name }
+end
+function defs.pattClass(prefix, items)
+   items[1] = defs.pattTerm(items[1])
+   local expr = fold_left(items, function(a, b)
+      return { type = "PatternAlternate", left = a, right = defs.pattTerm(b) }
+   end)
+   return { type = "PatternClass", negated = prefix == '^', alternates = expr }
+end
+function defs.pattRange(left, right)
+   return { type = "PatternRange", left = left, right = right }
+end
+function defs.pattName(name)
+   return name
+end
+function defs.pattTerm(literal)
+   return { type = "PatternTerm", literal = literal }
+end
+function defs.pattPredef(name)
+   return { type = "PatternPredef", name = name }
+end
+function defs.pattArg(index)
+   return { type = "PatternArgument", index = index }
+end
+
 
 return defs
 

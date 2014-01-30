@@ -4,7 +4,7 @@ local defs = require('parser.defs')
 local lpeg = require('lpeglj')
 lpeg.setmaxstack(1024)
 
-local patt = [[
+local patt = [=[
    chunk  <- {|
       s (<main_stmt> (<sep> s <main_stmt>)* <sep>?)? s (!. / %1 => error)
    |} -> chunk
@@ -29,7 +29,7 @@ local patt = [[
       / "while" / "do" / "for" / "in" / "of" / "and" / "or"
       / "super" / "import" / "export" / "try" / "catch" / "finally"
       / "if" / "elseif" / "else" / "then" / "is" / "include"
-      / "repeat" / "until"
+      / "repeat" / "until" / "grammar" / "rule"
    ) <idsafe>
 
    sep <- <bcomment>? (%nl / ";" / <lcomment>) / %s <sep>?
@@ -141,7 +141,12 @@ local patt = [[
    ) -> catchClause
 
    decl_stmt <- (
-      <local_decl> / <coro_decl> / <func_decl> / <class_decl> / <module_decl>
+        <local_decl>
+      / <coro_decl>
+      / <func_decl>
+      / <class_decl>
+      / <module_decl>
+      / <grammar_decl>
    )
 
    local_decl <- (
@@ -356,10 +361,10 @@ local patt = [[
    |} -> postfixExpr / <term>
 
    postfix_tail <- {|
-      s { "." } s <ident>
-      / { "::" } s (<ident> / %1 => error)
-      / { "[" } s <expr> s ("]" / %1 => error)
-      / { "(" } s {| <expr_list>? |} s (")" / %1 => error)
+        s { "." } s <ident>
+      / s { "::" } s (<ident> / %1 => error)
+      / s { "[" } s <expr> s ("]" / %1 => error)
+      / s { "(" } s {| <expr_list>? |} s (")" / %1 => error)
       / {~ HS -> "(" ~} {| !<binop> <expr_list> |}
    |}
 
@@ -371,9 +376,9 @@ local patt = [[
       <postfix_tail> <member_next> / <member_tail>
    )
    member_tail <- {|
-      s { "." } s <ident>
-      / { "::" } s <ident>
-      / { "[" } s <expr> s ("]" / %1 => error)
+        s { "." } s <ident>
+      / s { "::" } s <ident>
+      / s { "[" } s <expr> s ("]" / %1 => error)
    |}
 
    assop <- {
@@ -416,9 +421,134 @@ local patt = [[
    ) -> compBlock
 
    regex_expr <- (
-      "/" { ( "\\" / "\/" / !("/" / %nl) .)* } "/" {[gmi]*}
+      "/" s <patt_expr> s "/"
    ) -> regexExpr
-]]
+
+   grammar_decl <- (
+      "grammar" <idsafe> HS <ident> (s <grammar_body>)? s
+      (<end> / %1 => error)
+   ) -> grammarDecl
+
+   grammar_body <- {|
+      <grammar_body_stmt> (<sep> s <grammar_body_stmt>)* <sep>?
+   |}
+   grammar_body_stmt <- (
+      <rule_decl> / !(<return_stmt> / <yield_stmt>) <stmt>
+   )
+
+   rule_decl <- (
+      "rule" <idsafe> HS <patt_name> s <patt_expr> s (<end> / %1 -> error)
+   ) -> ruleDecl
+
+   patt_expr <- <patt_alt> -> pattExpr
+
+   patt_alt <- {|
+      ('|' s)? <patt_seq> (s '|' s <patt_seq>)*
+   |} -> pattAlt
+
+   patt_seq <- {|
+      (<patt_prefix> (s <patt_prefix>)*)?
+   |} -> pattSeq
+
+   patt_any <- '.' -> pattAny
+
+   patt_prefix <- (
+      <patt_assert> / <patt_suffix>
+   )
+
+   patt_assert  <- (
+      {'&' / '!' } s <patt_prefix>
+   ) -> pattAssert
+
+   patt_suffix <- (
+      <patt_primary> {| (s <patt_tail>)* |}
+   ) -> pattSuffix
+
+   patt_tail <- (
+      <patt_opt> / <patt_rep> / <patt_prod>
+   )
+
+   patt_prod <- (
+        {'~>'} s <expr>
+      / {'->'} s <expr>
+      / {'+>'} s <expr>
+   ) -> pattProd
+
+   patt_opt <- (
+      { [+*?] }
+   ) -> pattOpt
+
+   patt_rep <- (
+      '^' { [+-]? <patt_num> }
+   ) -> pattRep
+
+   patt_capt <- (
+        <patt_capt_subst>
+      / <patt_capt_const>
+      / <patt_capt_basic>
+      / <patt_capt_group>
+      / <patt_capt_table>
+      / <patt_capt_back>
+   )
+
+   patt_capt_subst <- (
+      '{~' s <patt_expr> s '~}'
+   ) -> pattCaptSubst
+
+   patt_capt_group <- (
+      '{:' (<patt_name> ':')? s <patt_expr> s ':}'
+   ) -> pattCaptGroup
+
+   patt_capt_table <- (
+      '{|'  s <patt_expr> s '|}'
+   ) -> pattCaptTable
+
+   patt_capt_basic <- (
+      '{'  s <patt_expr> s '}'
+   ) -> pattCaptBasic
+
+   patt_capt_const <- (
+      '{`'  s <expr> s '`}'
+   ) -> pattCaptConst
+
+   patt_capt_back <- (
+      '=' <patt_name>
+   ) -> pattCaptBack
+
+   patt_primary  <- (
+      '(' s <patt_expr> s ')'
+      / <patt_term>
+      / <patt_class>
+      / <patt_predef>
+      / <patt_capt>
+      / <patt_arg>
+      / <patt_any>
+      / <patt_ref>
+      / '<{' s <expr> s '}>'
+   )
+
+   patt_ref <- (
+      '<' <patt_name> '>'
+   ) -> pattRef
+
+   patt_arg <- (
+      '%' { <patt_num> } -> pattArg
+   ) -> pattRef
+
+   patt_class <- (
+      '[' {'^' / ''} {| <patt_item> (!']' <patt_item>)* |} ']'
+   ) -> pattClass
+
+   patt_item <- (
+      <patt_predef> / <patt_range> / { . }
+   )
+
+   patt_range   <- ({ . } '-' { [^]] }) -> pattRange
+   patt_name    <- { [A-Za-z_][A-Za-z0-9_]* } -> pattName
+   patt_num     <- [0-9]+
+   patt_term    <- ('"' { [^"]* } '"' / "'" { [^']* } "'") -> pattTerm
+   patt_predef  <- '%' <patt_name> -> pattPredef
+]=]
 
 local grammar = re.compile(patt, defs)
 local function parse(src, ...)

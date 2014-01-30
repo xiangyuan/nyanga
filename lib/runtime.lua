@@ -1,5 +1,6 @@
 local ffi      = require('ffi')
 local util     = require('util')
+local lpeg     = require('lpeglj')
 local compiler = require('compiler')
 
 local Range
@@ -478,6 +479,88 @@ local function yield(...)
    end
 end
 
+local Grammar = { }
+Grammar.__call = function(self, ...)
+   local inst = {
+      __name = self.__name;
+      __patt = lpeg.P(self.__rules__);
+      __args = { ... };
+   }
+   return setmetatable(inst, self)
+end
+Grammar.__index = function(self, key)
+   local __rules__ = rawget(self, '__rules__')
+   if __rules__ then
+      return __rules__[key]
+   end
+end
+Grammar.__tostring = function(self)
+   return string.format('Grammar<%s>', tostring(self.__name))
+end
+local function grammar(name, body)
+   local self = { __name = name, __rules__ = { } }
+   self.__index = { }
+   self.__index.match = function(o, ...)
+      return o.__patt:match(...)
+   end
+   self.__tostring = function(self)
+      return string.format('Grammar<%s>: %p', tostring(name), self)
+   end
+   body(setmetatable(self, Grammar))
+   return self
+end
+
+local rule = { }
+lpeg.setmaxstack(1024)
+do
+   local def = { }
+
+   def.nl  = lpeg.P("\n")
+   def.pos = lpeg.Cp()
+
+   local any=lpeg.P(1)
+   lpeg.locale(def)
+
+   def.a = def.alpha
+   def.c = def.cntrl
+   def.d = def.digit
+   def.g = def.graph
+   def.l = def.lower
+   def.p = def.punct
+   def.s = def.space
+   def.u = def.upper
+   def.w = def.alnum
+   def.x = def.xdigit
+   def.A = any - def.a
+   def.C = any - def.c
+   def.D = any - def.d
+   def.G = any - def.g
+   def.L = any - def.l
+   def.P = any - def.p
+   def.S = any - def.s
+   def.U = any - def.u
+   def.W = any - def.w
+   def.X = any - def.x
+
+   rule.def = def
+   rule.Def = function(id)
+      if def[id] == nil then
+         throw("No predefined pattern '"..tostring(id).."'", 2)
+      end
+      return def[id]
+   end
+
+   local mm = getmetatable(lpeg.P(0))
+   rule.__add = mm.__add
+   rule.__sub = mm.__sub
+   rule.__pow = mm.__pow
+   rule.__mul = mm.__mul
+   rule.__div = mm.__div
+   rule.__len = mm.__len
+   rule.__unm = mm.__unm
+   for k,v in pairs(lpeg) do rule[k] = v end
+end
+
 GLOBAL = setmetatable({
    try    = try;
    Array  = Array;
@@ -490,6 +573,8 @@ GLOBAL = setmetatable({
    import = import;
    yield  = yield;
    throw  = error;
+   grammar = grammar;
+   rule    = rule;
    include = include;
    __range__  = range;
    __spread__ = spread;

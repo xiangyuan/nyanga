@@ -574,6 +574,63 @@ function match:ClassDeclaration(node)
       { name }, { init }
    )
 end
+
+function match:GrammarDeclaration(node)
+   local name = self:get(node.id)
+
+   local rules = { }
+   local body  = { }
+
+   self.hoist[#self.hoist + 1] = B.localDeclaration({ name }, { })
+
+   local outer_hoist = self.hoist
+   self.hoist = { }
+
+   local seen = false
+   for i=1, #node.body do
+      if node.body[i].type == "RuleDeclaration" then
+         local name = node.body[i].name
+         local patt = self:get(node.body[i].pattern)
+         local base = B.memberExpression(
+            B.identifier('self'), B.identifier('__rules__')
+         )
+         if not seen then
+            seen = true
+            body[#body + 1] = B.assignmentExpression(
+               { B.memberExpression(base, B.literal(1), true) },
+               { B.literal(name) }
+            )
+         end
+         body[#body + 1] = B.assignmentExpression(
+            { B.memberExpression(base, B.identifier(name)) },
+            { patt }
+         )
+      else
+         body[#body + 1] = self:get(node.body[i])
+      end
+   end
+
+   for i=#self.hoist, 1, -1 do
+      table.insert(body, 1, self.hoist[i])
+   end
+
+   self.hoist = outer_hoist
+
+   local init = B.callExpression(
+      B.identifier('grammar'), {
+         B.literal(node.id.name),
+         B.functionExpression(
+            { B.identifier('self') },
+            B.blockStatement(body)
+         )
+      }
+   )
+
+   return B.assignmentExpression(
+      { name }, { init }
+   )
+end
+
 function match:SpreadExpression(node)
    return B.callExpression(
       B.identifier('__spread__'), { self:get(node.argument) }
@@ -694,6 +751,7 @@ function match:ForInStatement(node)
 
    return B.forInStatement(B.forNames(left), iter, body)
 end
+--[[
 function match:RegExp(node)
    return B.callExpression(
       B.identifier('RegExp'), {
@@ -702,6 +760,7 @@ function match:RegExp(node)
       }
    )
 end
+--]]
 function match:RangeExpression(node)
    return B.callExpression(B.identifier('__range__'), {
       self:get(node.min), self:get(node.max)
@@ -795,6 +854,144 @@ function match:ComprehensionBlock(node)
    return B.forInStatement(B.forNames(left), iter, B.blockStatement(body))
 end
 
+function match:RegExp(node)
+   return B.callExpression(
+      B.memberExpression(B.identifier('rule'), B.identifier('P')),
+      { self:get(node.pattern) }
+   )
+end
+function match:PatternAlternate(node)
+   return B.callExpression(
+      B.memberExpression(B.identifier('rule'), B.identifier('__add')),
+      { self:get(node.left), self:get(node.right) }
+   )
+end
+function match:PatternSequence(node)
+   return B.callExpression(
+      B.memberExpression(B.identifier('rule'), B.identifier('__mul')),
+      { self:get(node.left), self:get(node.right) }
+   )
+end
+function match:PatternAny(node)
+   return B.callExpression(
+      B.memberExpression(B.identifier('rule'), B.identifier('P')),
+      { B.literal(1) }
+   )
+end
+function match:PatternAssert(node)
+   local call
+   if node.operator == '&' then
+      call = '__len'
+   else
+      call = '__unm'
+   end
+   return B.callExpression(
+      B.memberExpression(B.identifier('rule'), B.identifier(call)),
+      { self:get(node.argument) }
+   )
+end
+function match:PatternProduction(node)
+   local oper, call = node.operator
+   if oper == '~>' then
+      call = 'Cf'
+   elseif oper == '+>' then
+      call = 'Cmt'
+   else
+      assert(oper == '->')
+      call = '__div'
+   end
+   return B.callExpression(
+      B.memberExpression(B.identifier('rule'), B.identifier(call)),
+      { self:get(node.left), self:get(node.right) }
+   )
+end
+function match:PatternRepeat(node)
+   return B.callExpression(
+      B.memberExpression(B.identifier('rule'), B.identifier('__pow')),
+      { self:get(node.left), B.literal(node.count) }
+   )
+end
+
+function match:PatternCaptSubst(node)
+   return B.callExpression(
+      B.memberExpression(B.identifier('rule'), B.identifier('Cs')),
+      { self:get(node.pattern) }
+   )
+end
+function match:PatternCaptTable(node)
+   return B.callExpression(
+      B.memberExpression(B.identifier('rule'), B.identifier('Ct')),
+      { self:get(node.pattern) }
+   )
+end
+function match:PatternCaptConst(node)
+   return B.callExpression(
+      B.memberExpression(B.identifier('rule'), B.identifier('Cc')),
+      { self:get(node.pattern) }
+   )
+end
+function match:PatternCaptGroup(node)
+   local args = { self:get(node.pattern) }
+   if node.name then
+      args[#args + 1] = B.literal(node.name)
+   end
+   return B.callExpression(
+      B.memberExpression(B.identifier('rule'), B.identifier('Cg')),
+      args
+   )
+end
+function match:PatternCaptBack(node)
+   return B.callExpression(
+      B.memberExpression(B.identifier('rule'), B.identifier('Cb')),
+      { B.literal(node.name) }
+   )
+end
+function match:PatternReference(node)
+   return B.callExpression(
+      B.memberExpression(B.identifier('rule'), B.identifier('V')),
+      { B.literal(node.name) }
+   )
+end
+function match:PatternClass(node)
+   local expr = self:get(node.alternates)
+   if node.negated then
+      local any = B.callExpression(
+         B.memberExpression(B.identifier('rule'), B.identifier('P')),
+         { B.literal(1) }
+      )
+      expr = B.callExpression(
+         B.memberExpression(B.identifier('rule'), B.identifier('__sub')),
+         { any, expr }
+      )
+   end
+   return expr
+end
+function match:PatternRange(node)
+   return B.callExpression(
+      B.memberExpression(B.identifier('rule'), B.identifier('R')),
+      { B.literal(node.left), B.literal(node.right) }
+   )
+end
+function match:PatternTerm(node)
+   return B.callExpression(
+      B.memberExpression(B.identifier('rule'), B.identifier('P')),
+      { B.literal(node.literal) }
+   )
+end
+function match:PatternPredef(node)
+   return B.callExpression(
+      B.memberExpression(B.identifier('rule'), B.identifier('Def')),
+      { B.literal(node.name) }
+   )
+end
+function match:PatternArgument(node)
+   local narg = string.match(node.name, '^(%d+)$')
+   return B.callExpression(
+      B.memberExpression(B.identifier('rule'), B.identifier('Carg')),
+      { tonumber(narg) }
+   )
+end
+
 local function countln(src, pos, idx)
    local line = 0
    local index, limit = idx or 1, pos
@@ -831,8 +1028,9 @@ local function transform(tree, src)
          error("no handler for "..tostring(node.type))
       end
       self:sync(node)
+      local line = self.line
       local out = match[node.type](self, node, ...)
-      out.line = self.line
+      out.line = line
       return out
    end
 
