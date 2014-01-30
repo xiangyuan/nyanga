@@ -156,13 +156,13 @@ function match:Table(node)
    self:write("{")
    self.writer:indent()
    local seen = { }
-   for i=1, #node.value do
+   for i=1, #node.entries do
       self.writer:writeln()
       seen[i] = true
-      self:render(node.value[i])
+      self:render(node.entries[i])
       self:write(";")
    end
-   for k,v in pairs(node.value) do
+   for k,v in pairs(node.entries) do
       if not seen[k] then
          self.writer:writeln()
          self:write("[")

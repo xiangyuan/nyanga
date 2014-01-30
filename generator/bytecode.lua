@@ -127,18 +127,18 @@ function match:Table(node, dest)
    dest = dest or self.ctx:nextreg()
    local narry, nhash = 0, 0
    local seen = { }
-   for i=1, #node.value do
+   for i=1, #node.entries do
       seen[i] = true
       narry = narry + 1
    end
-   for k,v in pairs(node.value) do
+   for k,v in pairs(node.entries) do
       if not seen[k] then
          nhash = nhash + 1
       end
    end
    self.ctx:op_tnew(dest, narry, nhash)
    local vtop = self.ctx.freereg
-   for k,v in pairs(node.value) do
+   for k,v in pairs(node.entries) do
       self.ctx.freereg = vtop
       local kreg, vreg
       if type(k) == 'table' then

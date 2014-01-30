@@ -129,15 +129,15 @@ end
 function defs.arrayPatt(elements)
    return { type = "ArrayPattern", elements = elements }
 end
-function defs.tablePatt(properties)
-   return { type = "TablePattern", properties = properties }
+function defs.tablePatt(entries)
+   return { type = "TablePattern", entries = entries }
 end
-function defs.tableMember(prop)
-   return prop
+function defs.tableEntry(item)
+   return item
 end
 
-function defs.tableExpr(members)
-   return { type = "TableExpression", members = members }
+function defs.tableExpr(entries)
+   return { type = "TableExpression", entries = entries }
 end
 --[[
 function defs.regexExpr(expr, flags)

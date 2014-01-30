@@ -1,7 +1,7 @@
 local util = require("util")
 local re   = require('re')
 local defs = require('parser.defs')
-local lpeg = require('lpeglj')
+local lpeg = require('lpeg')
 lpeg.setmaxstack(1024)
 
 local patt = [=[
@@ -150,23 +150,53 @@ local patt = [=[
    )
 
    local_decl <- (
-      "local" <idsafe> s {| <name_list> |} (s "=" s {| <expr_list> |})?
+      "local" <idsafe> s {|
+         <decl_left> (s "," s <decl_left>)*
+      |} (s "=" s {| <expr_list> |})?
    ) -> localDecl
 
-   left_pattern <- (
+   bind_left <- (
       <array_patt> / <table_patt> / <member_expr>
+   )
+   decl_left <- (
+      <array_patt_decl> / <table_patt_decl> / <ident>
    )
 
    array_patt <- (
-      "[" s {| <left_pattern> (s "," s <left_pattern>)* |} "]"
+      "[" s {| <bind_left> (s "," s <bind_left>)* |} "]"
    ) -> arrayPatt
 
-   table_patt <- (
-      "{" s {| <table_patt_pair> (s "," s <table_patt_pair>)* |} "}"
-   ) -> tablePatt
-   table_patt_pair <- (
-      (<literal> / <ident>) s ":" s <left_pattern>
+   array_patt_decl <- (
+      "[" s {| <decl_left> (s "," s <decl_left>)* |} "]"
+   ) -> arrayPatt
+
+   table_sep <- (
+      hs (","/";"/%nl)
    )
+   table_patt <- (
+      "{" s {|
+         <table_patt_pair> (<table_sep> s <table_patt_pair>)*
+         <table_sep>?
+       |} s "}"
+   ) -> tablePatt
+   table_patt_decl <- (
+      "{" s {|
+         <table_patt_pair_decl> (<table_sep> s <table_patt_pair_decl>)*
+         <table_sep>?
+      |} s "}"
+   ) -> tablePatt
+
+   table_patt_pair <- {|
+      ( {:name: <ident> :} / {:expr: "[" s <expr> s "]" :} ) s
+      "=" s {:value: <bind_left> :}
+      / {:value: <bind_left> :}
+   |}
+
+   table_patt_pair_decl <- {|
+      ( {:name: <ident> :} / {:expr: "[" s <expr> s "]" :} ) s
+      "=" s {:value: <decl_left> :}
+      / {:value: <decl_left> :}
+   |}
 
    name_list <- (
       <ident> (s "," s <ident>)*
@@ -364,7 +394,7 @@ local patt = [=[
         s { "." } s <ident>
       / s { "::" } s (<ident> / %1 => error)
       / s { "[" } s <expr> s ("]" / %1 => error)
-      / s { "(" } s {| <expr_list>? |} s (")" / %1 => error)
+      / { "(" } s {| <expr_list>? |} s (")" / %1 => error)
       / {~ HS -> "(" ~} {| !<binop> <expr_list> |}
    |}
 
@@ -387,11 +417,11 @@ local patt = [=[
    }
 
    assign_expr <- (
-      {| <left_pattern> (s "," s <left_pattern>)* |} s "=" s {| <expr_list> |}
+      {| <bind_left> (s "," s <bind_left>)* |} s "=" s {| <expr_list> |}
    ) -> assignExpr
 
    update_expr <- (
-      <left_pattern> s <assop> s <expr>
+      <bind_left> s <assop> s <expr>
    ) -> updateExpr
 
    array_expr <- (
@@ -401,15 +431,17 @@ local patt = [=[
    array_elements <- <expr> (s "," s <expr>)* (s ",")?
 
    table_expr <- (
-      "{" s {| <table_members>? |} s "}"
+      "{" s {| <table_entries>? |} s "}"
    ) -> tableExpr
 
-   table_members <- (
-      <table_member> (hs (","/";"/%nl) s <table_member>)* (hs (","/";"/%nl))?
+   table_entries <- (
+      <table_entry> (<table_sep> s <table_entry>)* <table_sep>?
    )
-   table_member <- ({|
-      {:key: ("[" s <expr> s "]" / <ident>) :} s "=" s {:value: <expr> :}
-   |} / <ident>) -> tableMember
+   table_entry <- {|
+      ( {:name: <ident> :} / {:expr: "[" s <expr> s "]" :} ) s
+      "=" s {:value: <expr> :}
+      / {:value: <expr> :}
+   |} -> tableEntry
 
    comp_expr <- (
       "[" s <expr> {| (s <comp_block>)+ |} s "]"

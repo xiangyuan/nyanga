@@ -194,7 +194,7 @@ local syntax = {
       kind = "Table",
       base = "Expression",
       properties = {
-         value = {
+         entries = {
             type = "table"
          }
       }

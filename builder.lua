@@ -64,8 +64,11 @@ end
 function exports.literal(val, loc)
    return syntax.build("Literal", { value = val, loc = loc })
 end
-function exports.table(val, loc)
-   return syntax.build("Table", { value = val, loc = loc })
+function exports.table(entries, loc)
+   return syntax.build("Table", { entries = entries, loc = loc })
+end
+function exports.tableEntry(key, value)
+   return syntax.build("TableEntry", { key = key, value = value })
 end
 function exports.expressionStatement(expr, loc)
    return syntax.build("ExpressionStatement", { expression = expr, loc = loc })
