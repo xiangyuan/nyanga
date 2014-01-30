@@ -20,7 +20,7 @@ module Scheduler
    poll_dur = -1
 
    fiber(fiber)
-      item = { fiber }
+      item = { fiber = fiber }
       if not fibers then
          fibers = item
       else
@@ -36,7 +36,13 @@ module Scheduler
    end
 
    timer(delay, times = 0, react, data)
-      timer = { delay, times, react, data, when = -1 }
+      timer = {
+         delay = delay,
+         times = times,
+         react = react,
+         data = data,
+         when = -1
+      }
       if not timers then
          timers = timer
       else
@@ -47,7 +53,7 @@ module Scheduler
    end
 
    poller(fd, events, react)
-      poller = { fd, events, react }
+      poller = { fd = fd, events = events, react = react }
       poll_cnt += 1
       poll_fds = nil
       pollers[fd] = poller
