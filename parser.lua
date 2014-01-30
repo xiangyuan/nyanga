@@ -163,11 +163,11 @@ local patt = [=[
    )
 
    array_patt <- (
-      "[" s {| <bind_left> (s "," s <bind_left>)* |} "]"
+      "[" s {| <bind_left> (s "," s <bind_left>)* |} s "]"
    ) -> arrayPatt
 
    array_patt_decl <- (
-      "[" s {| <decl_left> (s "," s <decl_left>)* |} "]"
+      "[" s {| <decl_left> (s "," s <decl_left>)* |} s "]"
    ) -> arrayPatt
 
    table_sep <- (
