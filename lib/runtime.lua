@@ -1,6 +1,6 @@
 local ffi      = require('ffi')
 local util     = require('util')
-local lpeg     = require('lpeglj')
+local lpeg     = require('lpeg')
 local compiler = require('compiler')
 
 local Range
