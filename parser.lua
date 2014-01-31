@@ -157,10 +157,10 @@ local patt = [=[
    ) -> localDecl
 
    bind_left <- (
-      <array_patt> / <table_patt> / <apply_patt> / <member_expr>
+      <array_patt> / <table_patt> / <member_expr> / <apply_patt>
    )
    decl_left <- (
-      <array_patt_decl> / <table_patt_decl> / <apply_patt_decl> / <ident>
+      <array_patt_decl> / <table_patt_decl> / <ident> / <apply_patt_decl>
    )
 
    array_patt <- (
@@ -179,7 +179,7 @@ local patt = [=[
          <table_patt_pair> (<table_sep> s <table_patt_pair>)*
          <table_sep>?
       |} s "}"
-      (s "as" <idsafe> hs <expr>)?
+      (hs "as" <idsafe> hs <expr>)?
    ) -> tablePatt
 
    table_patt_decl <- (
@@ -187,7 +187,7 @@ local patt = [=[
          <table_patt_pair_decl> (<table_sep> s <table_patt_pair_decl>)*
          <table_sep>?
       |} s "}"
-      (s "as" <idsafe> hs <expr>)?
+      (hs "as" <idsafe> hs <expr>)?
    ) -> tablePatt
 
    table_patt_pair <- {|
