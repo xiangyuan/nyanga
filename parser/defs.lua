@@ -129,9 +129,23 @@ end
 function defs.arrayPatt(elements)
    return { type = "ArrayPattern", elements = elements }
 end
-function defs.tablePatt(entries)
-   return { type = "TablePattern", entries = entries }
+function defs.tablePatt(entries, coerce)
+   return { type = "TablePattern", entries = entries, coerce = coerce }
 end
+function defs.applyPatt(expr)
+   local base = expr[1]
+   for i=2, #expr do
+      if expr[i][1] == "(" then
+         base = defs.callExpr(base, expr[i][2])
+      else
+         base = defs.memberExpr(base, expr[i][2], expr[i][1] == "[")
+         base.namespace = expr[i][1] == "::"
+      end
+   end
+   base.type = 'ApplyPattern'
+   return base
+end
+
 function defs.tableEntry(item)
    return item
 end
@@ -223,14 +237,14 @@ function defs.blockStmt(body)
       body = body
    }
 end
-function defs.matchStmt(disc, cases, default)
+function defs.givenStmt(disc, cases, default)
    if default then
-      cases[#cases + 1] = defs.matchWhen(nil, default)
+      cases[#cases + 1] = defs.givenCase(nil, default)
    end
-   return { type = "MatchStatement", discriminant = disc, cases = cases }
+   return { type = "GivenStatement", discriminant = disc, cases = cases }
 end
-function defs.matchWhen(test, cons)
-   return { type = "MatchWhen", test = test, consequent = cons }
+function defs.givenCase(test, cons)
+   return { type = "GivenCase", test = test, consequent = cons }
 end
 
 function defs.returnStmt(args)
@@ -358,6 +372,7 @@ local op_info = {
    ["!="]  = { 7, 'L' },
 
    ["is"]  = { 8, 'L' },
+   ["as"]  = { 8, 'L' },
    ["in"]  = { 9, 'L' },
 
    [">="]  = { 10, 'L' },
@@ -457,20 +472,13 @@ function defs.pattExpr(pass)
    return pass -- for now
 end
 
-local function fold_left(list, func)
-   local accu = table.remove(list, 1)
-   for i=1, #list do
-      accu = func(accu, list[i])
-   end
-   return accu
-end
 function defs.pattAlt(list)
-   return fold_left(list, function(a, b)
+   return util.fold_left(list, function(a, b)
       return { type = "PatternAlternate", left = a, right = b }
    end)
 end
 function defs.pattSeq(list)
-   return fold_left(list, function(a, b)
+   return util.fold_left(list, function(a, b)
       return { type = "PatternSequence", left = a, right = b }
    end)
 end
@@ -533,7 +541,7 @@ function defs.pattRef(name)
 end
 function defs.pattClass(prefix, items)
    items[1] = defs.pattTerm(items[1])
-   local expr = fold_left(items, function(a, b)
+   local expr = util.fold_left(items, function(a, b)
       return { type = "PatternAlternate", left = a, right = defs.pattTerm(b) }
    end)
    return { type = "PatternClass", negated = prefix == '^', alternates = expr }

@@ -62,4 +62,21 @@ function exports.extend(base, with)
    return setmetatable(with, { __index = base, __call = base.__call })
 end
 
+function exports.fold_left(list, func)
+   local accu = list[1]
+   for i=2, #list do
+      accu = func(accu, list[i])
+   end
+   return accu
+end
+
+function exports.fold_right(list, func)
+   local accu = list[#list]
+   for i=#list - 1, 1, -1 do
+      accu = func(accu, list[i])
+   end
+   return accu
+end
+
+
 return exports

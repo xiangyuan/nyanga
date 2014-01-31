@@ -561,6 +561,131 @@ do
    for k,v in pairs(lpeg) do rule[k] = v end
 end
 
+local ArrayPattern, TablePattern, ApplyPattern
+
+local __var__ = newproxy()
+
+local function __match__(that, this)
+   local type_this = type(this)
+   local type_that = type(that)
+
+   local meta_this = getmetatable(this)
+   local meta_that = getmetatable(that)
+   if meta_that then
+      if meta_that.__match then
+         return meta_that.__match(that, this)
+      elseif meta_that == Class then
+         return meta_this == that
+      else
+         return meta_this == meta_that
+      end
+   elseif type_this ~= type_that then
+      return false
+   else
+      return this == that
+   end
+end
+
+local TablePattern = class("TablePattern", nil, function(self)
+   self.__apply = function(self, desc, meta)
+      if meta then
+         setmetatable(desc, meta)
+      end
+      return setmetatable({
+         descriptor = desc;
+         metatable  = meta;
+      }, self)
+   end
+
+   self.__pairs = function(self)
+      return pairs(self.descriptor)
+   end
+
+   self.__match = function(self, that)
+      local desc = self.descriptor
+      for k, v in pairs(desc) do
+         if v == __var__ then
+            if that[k] == nil then
+               return false
+            end
+         else
+            if not __match__(that[k], v) then
+               return false
+            end
+         end
+      end
+      return true
+   end
+end)
+
+local ArrayPattern = class("ArrayPattern", nil, function(self)
+   self.__apply = function(self, ...)
+      return setmetatable({
+         length = select('#', ...), [0] = select(1, ...), select(2, ...)
+      }, self)
+   end
+
+   self.__pairs = function(self)
+      return function(self, ctrl)
+         local i = ctrl + 1
+         if i < self.length then
+            return i, self[i]
+         end
+      end, self, -1
+   end
+
+   self.__match = function(self, that)
+      for i=0, self.length - 1 do
+         if self[i] ~= __var__ then
+            if not __match__(that[i], self[i]) then
+               return false
+            end
+         end
+      end
+      return true
+   end
+end)
+
+local ApplyPattern = class("ApplyPattern", nil, function(self)
+   self.__apply = function(self, base, ...)
+      return setmetatable({
+         base = base,
+         narg = select('#', ...),
+         ...
+      }, self)
+   end
+
+   self.__pairs = function(self)
+      return function(self, ctrl)
+         local i = ctrl + 1
+         if i <= self.narg then
+            return i, self[i]
+         end
+      end, self, 0
+   end
+
+   self.__match = function(self, that)
+      return getmetatable(that) == self.base
+   end
+end)
+
+local function unapply(patt_iter, patt_stat, patt_ctrl, subj_iter, subj_stat, subj_ctrl)
+   for pk, pv in patt_iter, patt_stat, patt_ctrl do
+      if pv == __var__ then
+         for sk, sv in subj_iter, subj_stat, subj_ctrl do
+            if sk == pk then
+               return sv, unapply(patt_iter, patt_stat, pk, subj_iter, subj_stat, sk)
+            end
+         end
+      end
+   end
+end
+local function __unapply__(patt, subj)
+   local patt_iter, patt_stat, patt_ctrl = pairs(patt)
+   local subj_iter, subj_stat, subj_ctrl = pairs(subj)
+   return unapply(patt_iter, patt_stat, patt_ctrl, subj_iter, subj_stat, subj_ctrl)
+end
+
 GLOBAL = setmetatable({
    try    = try;
    Array  = Array;
@@ -579,9 +704,16 @@ GLOBAL = setmetatable({
    __range__  = range;
    __spread__ = spread;
    __typeof__ = type;
+   __match__  = __match__;
+   __unapply__ = __unapply__;
    __each__   = each;
+   __var__ = __var__;
    __in__  = __in__;
    __is__  = __is__;
+   __as__  = setmetatable;
+   ArrayPattern = ArrayPattern;
+   TablePattern = TablePattern;
+   ApplyPattern = ApplyPattern;
 }, { __index = _G })
 
 system = require('lib/system.nga')

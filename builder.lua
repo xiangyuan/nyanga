@@ -3,8 +3,8 @@ local exports = { }
 local util   = require('util')
 local syntax = require("syntax")
 
-function exports.tempnam()
-   return exports.identifier(util.genid())
+function exports.tempid(prefix, loc)
+   return exports.identifier(util.genid(prefix), loc)
 end
 function exports.chunk(body, loc)
    return syntax.build("Chunk", { body = body, loc = loc })

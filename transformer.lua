@@ -92,7 +92,6 @@ function match:Identifier(node)
    return B.identifier(node.name)
 end
 function match:VariableDeclaration(node)
-
    local decl = { }
    local simple = true
    for i=1, #node.names do
@@ -110,7 +109,12 @@ function match:VariableDeclaration(node)
             for i=1, #n.entries do
                queue[#queue + 1] = n.entries[i].value
             end
-         else
+         elseif n.type == 'ApplyPattern' then
+            simple = false
+            for i=1, #n.arguments do
+               queue[#queue + 1] = n.arguments[i]
+            end
+         elseif n.type == 'Identifier' then
             self.ctx:define(n.name)
             decl[#decl + 1] = B.identifier(n.name)
          end
@@ -129,43 +133,88 @@ function match:VariableDeclaration(node)
       }
    end
 end
+--[[
+   a, { x = x, y = y } as Point = f()
+   a, _1 = f()
+
+   _2 = TablePattern({ x = __var__, y = __var__ }, Point)
+   x = _2:__unapply(_1)
+
+   a, Point(x, y) = f()
+   a, _1 = f()
+   _2 = ApplyPattern(Point, __var__, __var__)
+   x, y = _2:__unapply(_1)
+
+   a, [b, c], Point([x], y) = f()
+   a, _1, _2 = f()
+   b = _1[0]
+   c = _1[1]
+   _3, _4 = __unapply__(Point, _2)
+   x = _3[0]
+   y = _4
+
+]]
+local function extract_bindings(node)
+   local list = { }
+   local queue = { node }
+   while #queue > 0 do
+      local n = table.remove(queue, 1)
+      if n.type == 'ArrayPattern' then
+         for i=1, #n.elements do
+            queue[#queue + 1] = n.elements[i]
+         end
+      elseif n.type == 'TablePattern' then
+         for i=1, #n.entries do
+            queue[#queue + 1] = n.entries[i].value
+         end
+      elseif n.type == 'ApplyPattern' then
+         for i=1, #n.arguments do
+            queue[#queue + 1] = n.arguments[i]
+         end
+      elseif n.type == 'Identifier' then
+         list[#list + 1] = n
+      elseif n.type == 'MemberExpression' then
+         list[#list + 1] = n
+      else
+         assert(n.type == 'Literal')
+      end
+   end
+   return list
+end
 function match:AssignmentExpression(node)
    local body = { }
    local decl = { }
-   local left = { }
+   local init = { }
    local dest = { }
    for i=1, #node.left do
       local n = node.left[i]
-      if n.type == 'TablePattern' or n.type == 'ArrayPattern' then
+      local t = n.type
+      if t == 'TablePattern' or t == 'ArrayPattern' or t == 'ApplyPattern' then
          -- destructuring
          local tvar = util.genid()
          self.ctx:define(tvar)
 
-         n.right = B.identifier(tvar)
+         local temp = B.identifier(tvar)
+         local left = { }
+         n.temp = temp
+         n.left = left
 
-         left[#left + 1] = n.right
-         decl[#decl + 1] = n.right
+         init[#init + 1] = temp
+         decl[#decl + 1] = temp
          dest[#dest + 1] = n
 
-         -- recursively define new variables
-         local queue = { n }
-         while #queue > 0 do
-            local n = table.remove(queue, 1)
-            if n.type == 'ArrayPattern' then
-               for i=1, #n.elements do
-                  queue[#queue + 1] = n.elements[i]
-               end
-            elseif n.type == 'TablePattern' then
-               for i=1, #n.entries do
-                  queue[#queue + 1] = n.entries[i].value
-               end
-            elseif n.type == 'Identifier' then
+         -- define new variables
+         local bind = extract_bindings(n)
+         for i=1, #bind do
+            local n = bind[i]
+            if n.type == 'Identifier' then
                if not self.ctx:lookup(n.name) then
                   self.ctx:define(n.name)
                   decl[#decl + 1] = B.identifier(n.name)
                end
-            else
-               assert(n.type == 'MemberExpression')
+               left[#left + 1] = B.identifier(n.name)
+            elseif n.type == 'MemberExpression' then
+               left[#left + 1] = self:get(n)
             end
          end
       else
@@ -174,7 +223,7 @@ function match:AssignmentExpression(node)
             self.ctx:define(n.name)
             decl[#decl + 1] = B.identifier(n.name)
          end
-         left[#left + 1] = self:get(n)
+         init[#init + 1] = self:get(n)
       end
    end
 
@@ -183,45 +232,48 @@ function match:AssignmentExpression(node)
       body[#body + 1] = B.localDeclaration(decl, { })
    end
 
-   body[#body + 1] = B.assignmentExpression(left, self:list(node.right))
+   for i=1, #dest do
+      local patt = B.identifier(util.genid())
+      body[#body + 1] = B.localDeclaration({ patt }, { self:get(dest[i])})
+      dest[i].patt = patt
+   end
 
-   if #dest > 0 then
-      -- destructure temps
-      for i=1, #dest do
-         self:get(dest[i], body)
-      end
+   body[#body + 1] = B.assignmentExpression(init, self:list(node.right))
+
+   -- destructure
+   for i=1, #dest do
+      body[#body + 1] = B.assignmentExpression(
+         dest[i].left, {
+            B.callExpression(
+               B.identifier('__unapply__'), { dest[i].patt, dest[i].temp }
+            )
+         }
+      )
    end
 
    return B.blockStatement(body)
 end
-function match:ArrayPattern(node, body)
+function match:ArrayPattern(node)
+   local list = { }
    for i=1, #node.elements do
       local n = node.elements[i]
       if n.type == 'Identifier' or n.type == 'MemberExpression' then
-         body[#body + 1] = B.assignmentExpression(
-            { self:get(n) },
-            { B.memberExpression(node.right, B.literal(i-1), true) }
-         )
+         list[#list + 1] = B.identifier('__var__')
       else
-         local temp = util.genid()
-         self.ctx:define(temp)
-         body[#body + 1] = B.localDeclaration(
-            { B.identifier(temp) },
-            { B.memberExpression(node.right, B.literal(i-1), true) }
-         )
-         n.right = B.identifier(temp)
-         self:get(n, body)
+         list[#list + 1] = self:get(n)
       end
    end
+   return B.callExpression(B.identifier('ArrayPattern'), list)
 end
-function match:TablePattern(node, body)
+function match:TablePattern(node)
+   local tab = { }
    local idx = 1
    for i=1, #node.entries do
       local n = node.entries[i]
 
       local key, val
       if n.name then
-         key = self:get(n.name)
+         key = n.name.name
       elseif n.expr then
          key = self:get(n.expr)
       else
@@ -231,21 +283,28 @@ function match:TablePattern(node, body)
       end
       local nv = n.value
       if nv.type == 'Identifier' or nv.type == 'MemberExpression' then
-         body[#body + 1] = B.assignmentExpression(
-            { self:get(nv) },
-            { B.memberExpression(node.right, key, n.expr ~= nil) }
-         )
+         tab[key] = B.identifier('__var__')
       else
-         local temp = util.genid()
-         self.ctx:define(temp)
-         body[#body + 1] = B.localDeclaration(
-            { B.identifier(temp) },
-            { B.memberExpression(node.right, key, n.expr ~= nil) }
-         )
-         nv.right = B.identifier(temp)
-         self:get(nv, body)
+         tab[key] = self:get(nv)
       end
    end
+   local args = { B.table(tab) }
+   if node.coerce then
+      args[#args + 1] = self:get(node.coerce)
+   end
+   return B.callExpression(B.identifier('TablePattern'), args)
+end
+function match:ApplyPattern(node)
+   local args = { self:get(node.callee) }
+   for i=1, #node.arguments do
+      local n = node.arguments[i]
+      if n.type == 'Identifier' or n.type == 'MemberExpression' then
+         args[#args + 1] = B.identifier('__var__')
+      else
+         args[#args + 1] = self:get(n)
+      end
+   end
+   return B.callExpression(B.identifier('ApplyPattern'), args)
 end
 function match:UpdateExpression(node)
    local oper = string.sub(node.operator, 1, -2)
@@ -321,12 +380,79 @@ function match:IfStatement(node)
    return stmt
 end
 
+function match:GivenStatement(node)
+   local body = { }
+   local disc = B.tempid()
+
+   body[#body + 1] = B.localDeclaration({ disc }, { self:get(node.discriminant) })
+
+   local cases = { }
+   for i=1, #node.cases do
+      local case = node.cases[i]
+      local test
+      local cons = self:get(case.consequent)
+      if case.test then
+         local t = case.test.type
+         if t == 'ArrayPattern' or t == 'TablePattern' or t == 'ApplyPattern' then
+            -- for storing the template
+            local temp = B.tempid()
+            self.ctx:define(temp.name)
+
+            body[#body + 1] = B.localDeclaration(
+               { temp }, { self:get(case.test) }
+            )
+            test = B.callExpression(B.identifier('__match__'), { temp, disc })
+
+            local head = { }
+            local bind = extract_bindings(case.test)
+            local vars = { }
+            for i=1, #bind do
+               local n = bind[i]
+               if n.type == 'Identifier' then
+                  self.ctx:define(n.name)
+                  vars[#vars + 1] = self:get(n)
+               end
+               bind[i] = self:get(n)
+            end
+            if #vars > 0 then
+               head[#head + 1] = B.localDeclaration(vars, { })
+            end
+
+            head[#head + 1] = B.assignmentExpression(
+               bind,
+               { B.callExpression(B.identifier('__unapply__'), { temp, disc }) }
+            )
+            for i=1, #cons.body do
+               head[#head + 1] = cons.body[i]
+            end
+            cons = B.blockStatement(head)
+         elseif t == 'Literal' then
+            test = B.binaryExpression("==", disc, self:get(case.test))
+         else
+            test = self:get(case.test)
+         end
+      else
+         test = B.literal(true)
+      end
+      cases[#cases + 1] = B.ifStatement(test, cons)
+   end
+
+   util.fold_left(cases, function(a, b)
+      a.alternate = b
+      return b
+   end)
+
+   body[#body + 1] = cases[1]
+
+   return B.doStatement(B.blockStatement(body))
+end
+
 function match:TryStatement(node)
    local oldret = self.retsig
    local oldval = self.retval
 
-   self.retsig = B.tempnam()
-   self.retval = B.tempnam()
+   self.retsig = B.tempid()
+   self.retval = B.tempid()
 
    local try = B.functionExpression({ }, self:get(node.body))
 
@@ -415,6 +541,11 @@ function match:BinaryExpression(node)
    end
    if o == 'is' then
       return B.callExpression(B.identifier('__is__'), {
+         self:get(node.left), self:get(node.right)
+      })
+   end
+   if o == 'as' then
+      return B.callExpression(B.identifier('__as__'), {
          self:get(node.left), self:get(node.right)
       })
    end
@@ -857,8 +988,8 @@ function match:ForInStatement(node)
    local save = self.loop
    self.loop = loop
 
-   local none = B.tempnam()
-   local temp = B.tempnam()
+   local none = B.tempid()
+   local temp = B.tempid()
    local iter = B.callExpression(B.identifier('__each__'), { self:get(node.right) })
 
    local left = { }
@@ -894,7 +1025,6 @@ function match:ArrayExpression(node)
 end
 function match:TableExpression(node)
    local tab = { }
-   local idx = 1
    for i=1, #node.entries do
       local item = node.entries[i]
 
@@ -928,7 +1058,7 @@ function match:RawString(node)
    return B.listExpression('..', list)
 end
 function match:ArrayComprehension(node)
-   local temp = B.tempnam()
+   local temp = B.tempid()
    local body = B.blockStatement{
       B.localDeclaration({ temp }, {
          B.callExpression(B.identifier('Array'), { })

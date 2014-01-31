@@ -28,8 +28,8 @@ local patt = [=[
       / "yield" / "break" / "continue" / "not" / "throw"
       / "while" / "do" / "for" / "in" / "of" / "and" / "or"
       / "super" / "import" / "export" / "try" / "catch" / "finally"
-      / "if" / "elseif" / "else" / "then" / "is" / "include"
-      / "repeat" / "until" / "grammar" / "rule"
+      / "if" / "elseif" / "else" / "then" / "is" / "as" / "include"
+      / "repeat" / "until" / "grammar" / "rule" / "given" / "case"
    ) <idsafe>
 
    sep <- <bcomment>? (%nl / ";" / <lcomment>) / %s <sep>?
@@ -103,6 +103,7 @@ local patt = [=[
       / <break_stmt>
       / <continue_stmt>
       / <yield_stmt>
+      / <given_stmt>
    )) -> stmt
 
    stmt_list <- {|
@@ -156,10 +157,10 @@ local patt = [=[
    ) -> localDecl
 
    bind_left <- (
-      <array_patt> / <table_patt> / <member_expr>
+      <array_patt> / <table_patt> / <apply_patt> / <member_expr>
    )
    decl_left <- (
-      <array_patt_decl> / <table_patt_decl> / <ident>
+      <array_patt_decl> / <table_patt_decl> / <apply_patt_decl> / <ident>
    )
 
    array_patt <- (
@@ -177,25 +178,49 @@ local patt = [=[
       "{" s {|
          <table_patt_pair> (<table_sep> s <table_patt_pair>)*
          <table_sep>?
-       |} s "}"
+      |} s "}"
+      (s "as" <idsafe> hs <expr>)?
    ) -> tablePatt
+
    table_patt_decl <- (
       "{" s {|
          <table_patt_pair_decl> (<table_sep> s <table_patt_pair_decl>)*
          <table_sep>?
       |} s "}"
+      (s "as" <idsafe> hs <expr>)?
    ) -> tablePatt
 
    table_patt_pair <- {|
-      ( {:name: <ident> :} / {:expr: "[" s <expr> s "]" :} ) s
+      ( {:name: <word> -> identifier :} / {:expr: "[" s <expr> s "]" :} ) s
       "=" s {:value: <bind_left> :}
       / {:value: <bind_left> :}
    |}
 
    table_patt_pair_decl <- {|
-      ( {:name: <ident> :} / {:expr: "[" s <expr> s "]" :} ) s
+      ( {:name: <word> -> identifier :} / {:expr: "[" s <expr> s "]" :} ) s
       "=" s {:value: <decl_left> :}
       / {:value: <decl_left> :}
+   |}
+
+   apply_patt <- {|
+      <term> <apply_tail>* <apply_call>
+   |} -> applyPatt
+
+   apply_patt_decl <- {|
+      <term> <apply_tail>* <apply_call_decl>
+   |} -> applyPatt
+
+   apply_tail <- {|
+        s { "." } s <ident>
+      / s { "::" } s (<ident> / %1 => error)
+      / s { "[" } s <expr> s ("]" / %1 => error)
+   |}
+
+   apply_call <- {|
+      { "(" } s {| <bind_left> (s "," s <bind_left>)* |} s (")" / %1 => error)
+   |}
+   apply_call_decl <- {|
+      { "(" } s {| <decl_left> (s "," s <decl_left>)* |} s (")" / %1 => error)
    |}
 
    name_list <- (
@@ -312,6 +337,17 @@ local patt = [=[
       )
    ) -> ifStmt
 
+   given_stmt <- (
+      "given" <idsafe> s <expr>
+         {| <given_case>+ |}
+         (s "else" <idsafe> s <block_stmt>)? s
+      (<end> / %1 -> error)
+   ) -> givenStmt
+
+   given_case <- (
+      s "case" <idsafe> s <bind_left> s "then" <idsafe> s <block_stmt>
+   ) -> givenCase
+
    for_stmt <- (
       "for" <idsafe> s <ident> s "=" s <expr> s "," s <expr>
       (s "," s <expr> / ('' -> '1') -> literalNumber) s
@@ -375,7 +411,7 @@ local patt = [=[
    binop <- {
       "+" / "-" / "~" / "/" / "**" / "*" / "%" / "^" / "|" / "&"
       / ">>>" / ">>" / ">=" / ">" / "<<" / "<=" / "<" / ".."
-      / "!=" / "==" / ("or" / "and" / "is") <idsafe>
+      / "!=" / "==" / ("or" / "and" / "is" / "as") <idsafe>
    }
 
    infix_expr  <- (
@@ -438,7 +474,7 @@ local patt = [=[
       <table_entry> (<table_sep> s <table_entry>)* <table_sep>?
    )
    table_entry <- {|
-      ( {:name: <ident> :} / {:expr: "[" s <expr> s "]" :} ) s
+      ( {:name: <word> -> identifier :} / {:expr: "[" s <expr> s "]" :} ) s
       "=" s {:value: <expr> :}
       / {:value: <expr> :}
    |} -> tableEntry
