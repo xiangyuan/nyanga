@@ -157,10 +157,10 @@ local patt = [=[
    ) -> localDecl
 
    bind_left <- (
-      <array_patt> / <table_patt> / <member_expr> / <apply_patt>
+      <array_patt> / <table_patt> / <apply_patt> / <member_expr>
    )
    decl_left <- (
-      <array_patt_decl> / <table_patt_decl> / <ident> / <apply_patt_decl>
+      <array_patt_decl> / <table_patt_decl> / <apply_patt_decl> / <ident>
    )
 
    array_patt <- (
@@ -217,10 +217,10 @@ local patt = [=[
    |}
 
    apply_call <- {|
-      { "(" } s {| <bind_left> (s "," s <bind_left>)* |} s (")" / %1 => error)
+      { "(" } s {| <bind_left> (s "," s <bind_left>)* |} s ")"
    |}
    apply_call_decl <- {|
-      { "(" } s {| <decl_left> (s "," s <decl_left>)* |} s (")" / %1 => error)
+      { "(" } s {| <decl_left> (s "," s <decl_left>)* |} s ")"
    |}
 
    name_list <- (
@@ -405,7 +405,7 @@ local patt = [=[
    ) -> superExpr
 
    expr_stmt <- (
-      {} (<assign_expr> / <update_expr> / <expr>)
+      {} (<assign_expr> / <update_expr> / <postfix_expr>)
    ) -> exprStmt
 
    binop <- {
