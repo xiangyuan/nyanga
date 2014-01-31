@@ -429,7 +429,7 @@ local patt = [=[
    postfix_tail <- {|
         s { "." } s <ident>
       / s { "::" } s (<ident> / %1 => error)
-      / s { "[" } s <expr> s ("]" / %1 => error)
+      / hs { "[" } s <expr> s ("]" / %1 => error)
       / { "(" } s {| <expr_list>? |} s (")" / %1 => error)
       / {~ HS -> "(" ~} {| !<binop> <expr_list> |}
    |}
