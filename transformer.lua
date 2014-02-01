@@ -133,42 +133,21 @@ function match:VariableDeclaration(node)
       }
    end
 end
---[[
-   a, { x = x, y = y } as Point = f()
-   a, _1 = f()
-
-   _2 = TablePattern({ x = __var__, y = __var__ }, Point)
-   x = _2:__unapply(_1)
-
-   a, Point(x, y) = f()
-   a, _1 = f()
-   _2 = ApplyPattern(Point, __var__, __var__)
-   x, y = _2:__unapply(_1)
-
-   a, [b, c], Point([x], y) = f()
-   a, _1, _2 = f()
-   b = _1[0]
-   c = _1[1]
-   _3, _4 = __unapply__(Point, _2)
-   x = _3[0]
-   y = _4
-
-]]
 local function extract_bindings(node)
    local list = { }
    local queue = { node }
    while #queue > 0 do
-      local n = table.remove(queue, 1)
+      local n = table.remove(queue)
       if n.type == 'ArrayPattern' then
-         for i=1, #n.elements do
+         for i=#n.elements, 1, -1 do
             queue[#queue + 1] = n.elements[i]
          end
       elseif n.type == 'TablePattern' then
-         for i=1, #n.entries do
+         for i=#n.entries, 1, -1 do
             queue[#queue + 1] = n.entries[i].value
          end
       elseif n.type == 'ApplyPattern' then
-         for i=1, #n.arguments do
+         for i=#n.arguments, 1, -1 do
             queue[#queue + 1] = n.arguments[i]
          end
       elseif n.type == 'Identifier' then
@@ -268,12 +247,14 @@ end
 function match:TablePattern(node)
    local tab = { }
    local idx = 1
+   local keys = { }
+   local vals = { }
    for i=1, #node.entries do
       local n = node.entries[i]
 
       local key, val
       if n.name then
-         key = n.name.name
+         key = B.literal(n.name.name)
       elseif n.expr then
          key = self:get(n.expr)
       else
@@ -283,11 +264,15 @@ function match:TablePattern(node)
       end
       local nv = n.value
       if nv.type == 'Identifier' or nv.type == 'MemberExpression' then
-         tab[key] = B.identifier('__var__')
+         val = B.identifier('__var__')
       else
-         tab[key] = self:get(nv)
+         val = self:get(nv)
       end
+      keys[#keys + 1] = key
+      vals[#vals + 1] = val
    end
+   tab.keys = B.table(keys)
+   tab.vals = B.table(vals)
    local args = { B.table(tab) }
    if node.coerce then
       args[#args + 1] = self:get(node.coerce)

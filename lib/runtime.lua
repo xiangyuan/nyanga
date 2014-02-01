@@ -174,16 +174,15 @@ function Array.__iter(a)
       return nil
    end, a
 end
-function Array.__pairs(a)
-   local l = a.length
-   return function(a, p)
-      local i = p + 1
-      local v = a[i]
-      if i < l then
-         return i, v
+Array.__pairs = function(self)
+   return function(self, ctrl)
+      local i = ctrl + 1
+      if i < self.length then
+         return i, self[i]
       end
-   end, a, -1
+   end, self, -1
 end
+
 function Array.__members__:join(sep)
    return table.concat({ Array.__spread(self) }, sep)
 end
@@ -588,9 +587,6 @@ end
 
 local TablePattern = class("TablePattern", nil, function(self)
    self.__apply = function(self, desc, meta)
-      if meta then
-         setmetatable(desc, meta)
-      end
       return setmetatable({
          descriptor = desc;
          metatable  = meta;
@@ -598,7 +594,13 @@ local TablePattern = class("TablePattern", nil, function(self)
    end
 
    self.__pairs = function(self)
-      return pairs(self.descriptor)
+      local i = 0
+      return function(stat, ctrl)
+         i = i + 1
+         if stat.keys[i] ~= nil then
+            return stat.keys[i], stat.vals[i]
+         end
+      end, self.descriptor, nil
    end
 
    self.__match = function(self, that)
@@ -669,21 +671,29 @@ local ApplyPattern = class("ApplyPattern", nil, function(self)
    end
 end)
 
-local function unapply(patt_iter, patt_stat, patt_ctrl, subj_iter, subj_stat, subj_ctrl)
-   for pk, pv in patt_iter, patt_stat, patt_ctrl do
+local function unapply(subj, iter, stat, ctrl, ...)
+   for pk, pv in iter, stat, ctrl do
       if pv == __var__ then
-         for sk, sv in subj_iter, subj_stat, subj_ctrl do
+         for sk, sv in pairs(subj) do
             if sk == pk then
-               return sv, unapply(patt_iter, patt_stat, pk, subj_iter, subj_stat, sk)
+               return sv, unapply(subj, iter, stat, sk, ...)
+            end
+         end
+      elseif type(pv) == 'table' then
+         for sk, sv in pairs(subj) do
+            if sk == pk then
+               local a, b, c = pairs(pv)
+               return unapply(sv, a, b, c, unapply(subj, iter, stat, sk, ...))
             end
          end
       end
    end
+   return ...
 end
+
+
 local function __unapply__(patt, subj)
-   local patt_iter, patt_stat, patt_ctrl = pairs(patt)
-   local subj_iter, subj_stat, subj_ctrl = pairs(subj)
-   return unapply(patt_iter, patt_stat, patt_ctrl, subj_iter, subj_stat, subj_ctrl)
+   return unapply(subj, pairs(patt))
 end
 
 GLOBAL = setmetatable({
