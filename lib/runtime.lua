@@ -588,9 +588,17 @@ end
 function unapply(subj, iter, stat, ctrl, ...)
    for k, v in iter, stat, ctrl do
       if v == __var__ then
-         return subj[k], unapply(subj, iter, stat, k, ...)
+         for _k, _v in pairs(subj) do
+            if _k == k then
+               return _v, unapply(subj, iter, stat, k, ...)
+            end
+         end
       elseif type(v) == 'table' then
-         return __unapply__(v, subj[k], unapply(subj, iter, stat, k, ...))
+         for _k, _v in pairs(subj) do
+            if _k == k then
+               return __unapply__(v, _v, unapply(subj, iter, stat, k, ...))
+            end
+         end
       end
    end
    return ...
