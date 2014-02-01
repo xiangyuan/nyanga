@@ -467,10 +467,13 @@ function defs.regexExpr(expr)
 end
 
 function defs.grammarDecl(name, body)
-   return { type = "GrammarDeclaration", id = name, body = body }
+   return { type = "GrammarDeclaration", name = name, body = body }
 end
 function defs.ruleDecl(name, expr)
    return { type = "RuleDeclaration", name = name, pattern = expr }
+end
+function defs.pattGrammar(rules)
+   return { type = "PatternGrammar", rules = rules }
 end
 
 function defs.pattExpr(pass)
@@ -545,9 +548,8 @@ function defs.pattRef(name)
    return { type = "PatternReference", name = name }
 end
 function defs.pattClass(prefix, items)
-   items[1] = defs.pattTerm(items[1])
    local expr = util.fold_left(items, function(a, b)
-      return { type = "PatternAlternate", left = a, right = defs.pattTerm(b) }
+      return { type = "PatternAlternate", left = a, right = b }
    end)
    return { type = "PatternClass", negated = prefix == '^', alternates = expr }
 end

@@ -824,62 +824,6 @@ function match:ClassDeclaration(node)
    )
 end
 
-function match:GrammarDeclaration(node)
-   local name = self:get(node.id)
-
-   local rules = { }
-   local body  = { }
-
-   self.hoist[#self.hoist + 1] = B.localDeclaration({ name }, { })
-
-   local outer_hoist = self.hoist
-   self.hoist = { }
-
-   local seen = false
-   for i=1, #node.body do
-      if node.body[i].type == "RuleDeclaration" then
-         local name = node.body[i].name
-         local patt = self:get(node.body[i].pattern)
-         local base = B.memberExpression(
-            B.identifier('self'), B.identifier('__rules__')
-         )
-         if not seen then
-            seen = true
-            body[#body + 1] = B.assignmentExpression(
-               { B.memberExpression(base, B.literal(1), true) },
-               { B.literal(name) }
-            )
-         end
-         body[#body + 1] = B.assignmentExpression(
-            { B.memberExpression(base, B.identifier(name)) },
-            { patt }
-         )
-      else
-         body[#body + 1] = self:get(node.body[i])
-      end
-   end
-
-   for i=#self.hoist, 1, -1 do
-      table.insert(body, 1, self.hoist[i])
-   end
-
-   self.hoist = outer_hoist
-
-   local init = B.callExpression(
-      B.identifier('grammar'), {
-         B.literal(node.id.name),
-         B.functionExpression(
-            { B.identifier('self') },
-            B.blockStatement(body)
-         )
-      }
-   )
-
-   return B.assignmentExpression(
-      { name }, { init }
-   )
-end
-
 function match:SpreadExpression(node)
    return B.callExpression(
       B.identifier('__spread__'), { self:get(node.argument) }
@@ -1091,9 +1035,37 @@ function match:ComprehensionBlock(node)
 end
 
 function match:RegExp(node)
-   return B.callExpression(
+   local body = B.callExpression(
       B.memberExpression(B.identifier('rule'), B.identifier('P')),
       { self:get(node.pattern) }
+   )
+   return B.callExpression(
+      B.identifier('grammar'),
+      { B.literal(nil), body }
+   )
+end
+function match:GrammarDeclaration(node)
+   return B.localDeclaration(
+      { self:get(node.name) }, {
+         B.callExpression(
+            B.identifier('grammar'),
+            { B.literal(node.name.name), self:get(node.body) }
+         )
+      }
+   )
+end
+function match:PatternGrammar(node)
+   local tab = { }
+   for i=1, #node.rules, 2 do
+      if i == 1 then
+         tab[B.literal(1)] = B.literal(node.rules[i])
+      end
+      local key, val = B.literal(node.rules[i]), self:get(node.rules[i + 1])
+      tab[key] = val
+   end
+   return B.callExpression(
+      B.memberExpression(B.identifier('rule'), B.identifier('P')),
+      { B.table(tab) }
    )
 end
 function match:PatternAlternate(node)
@@ -1148,6 +1120,12 @@ function match:PatternRepeat(node)
    )
 end
 
+function match:PatternCaptBasic(node)
+   return B.callExpression(
+      B.memberExpression(B.identifier('rule'), B.identifier('C')),
+      { self:get(node.pattern) }
+   )
+end
 function match:PatternCaptSubst(node)
    return B.callExpression(
       B.memberExpression(B.identifier('rule'), B.identifier('Cs')),
@@ -1205,7 +1183,7 @@ end
 function match:PatternRange(node)
    return B.callExpression(
       B.memberExpression(B.identifier('rule'), B.identifier('R')),
-      { B.literal(node.left), B.literal(node.right) }
+      { B.literal(node.left..node.right) }
    )
 end
 function match:PatternTerm(node)

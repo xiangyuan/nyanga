@@ -9,6 +9,7 @@ local lpeg     = require('lpeg')
 local compiler = require('compiler')
 
 local Range
+local __unapply__, unapply
 
 local function loader(filename)
    if string.match(filename, "%.nga") then
@@ -484,34 +485,27 @@ local function yield(...)
 end
 
 local Grammar = { }
-Grammar.__call = function(self, ...)
-   local inst = {
-      __name = self.__name;
-      __patt = lpeg.P(self.__rules__);
-      __args = { ... };
-   }
-   return setmetatable(inst, self)
+Grammar.__index = { }
+Grammar.__index.match = function(self, ...)
+   return self.__patt:match(...)
 end
-Grammar.__index = function(self, key)
-   local __rules__ = rawget(self, '__rules__')
-   if __rules__ then
-      return __rules__[key]
-   end
+Grammar.__call = function(self, ...)
+   return self.__patt:match(...)
 end
 Grammar.__tostring = function(self)
    return string.format('Grammar<%s>', tostring(self.__name))
 end
-local function grammar(name, body)
-   local self = { __name = name, __rules__ = { } }
-   self.__index = { }
-   self.__index.match = function(o, ...)
-      return o.__patt:match(...)
-   end
-   self.__tostring = function(self)
-      return string.format('Grammar<%s>: %p', tostring(name), self)
-   end
-   body(setmetatable(self, Grammar))
-   return self
+Grammar.__index.__unapply = function(self, subj, i, s, c, ...)
+   subj = { self.__patt:match(subj) }
+   return unapply(subj, i, s, c, ...)
+end
+Grammar.__index.__match = function(self, ...)
+   return self.__patt:match(...)
+end
+
+local function grammar(name, patt)
+   local self = { __name = name, __patt = patt }
+   return setmetatable(self, Grammar)
 end
 
 local rule = { }
@@ -589,6 +583,28 @@ local function __match__(that, this)
       return this == that
    end
 end
+
+-- generic destructuring
+function unapply(subj, iter, stat, ctrl, ...)
+   for k, v in iter, stat, ctrl do
+      if v == __var__ then
+         return subj[k], unapply(subj, iter, stat, k, ...)
+      elseif type(v) == 'table' then
+         return __unapply__(v, subj[k], unapply(subj, iter, stat, k, ...))
+      end
+   end
+   return ...
+end
+
+function __unapply__(patt, subj, ...)
+   local i, s, c = pairs(patt)
+   local m = getmetatable(patt)
+   if m and m.__unapply then
+      return m.__unapply(patt, subj, i, s, c, ...)
+   end
+   return unapply(subj, i, s, c, ...)
+end
+
 
 local TablePattern = class("TablePattern", nil, function(self)
    self.__apply = function(self, desc, meta)
@@ -678,35 +694,22 @@ local ApplyPattern = class("ApplyPattern", nil, function(self)
       end, self, 0
    end
 
+   self.__unapply = function(self, subj, i, s, c, ...)
+      local base = self.base
+      if base.__unapply then
+         return base.__unapply(base, subj, i, s, c, ...)
+      end
+      return unapply(subj, i, s, c, ...)
+   end
+
    self.__match = function(self, that)
+      local base = self.base
+      if base.__match then
+         return base.__match(base, that)
+      end
       return getmetatable(that) == self.base
    end
 end)
-
-local function unapply(subj, iter, stat, ctrl, ...)
-   for pk, pv in iter, stat, ctrl do
-      if pv == __var__ then
-         for sk, sv in pairs(subj) do
-            if sk == pk then
-               return sv, unapply(subj, iter, stat, sk, ...)
-            end
-         end
-      elseif type(pv) == 'table' then
-         for sk, sv in pairs(subj) do
-            if sk == pk then
-               local a, b, c = pairs(pv)
-               return unapply(sv, a, b, c, unapply(subj, iter, stat, sk, ...))
-            end
-         end
-      end
-   end
-   return ...
-end
-
-
-local function __unapply__(patt, subj)
-   return unapply(subj, pairs(patt))
-end
 
 GLOBAL = setmetatable({
    try    = try;

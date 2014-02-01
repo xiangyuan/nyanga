@@ -494,7 +494,7 @@ local patt = [=[
    ) -> compBlock
 
    regex_expr <- (
-      "/" s <patt_expr> s "/"
+      "/" s <patt_expr> s ("/" / %s -> error)
    ) -> regexExpr
 
    grammar_decl <- (
@@ -502,18 +502,17 @@ local patt = [=[
       (<end> / %1 => error)
    ) -> grammarDecl
 
-   grammar_body <- {|
-      <grammar_body_stmt> (<sep> s <grammar_body_stmt>)* <sep>?
-   |}
-   grammar_body_stmt <- (
-      <rule_decl> / !(<return_stmt> / <yield_stmt>) <stmt>
+   grammar_body <- <patt_expr>
+
+   patt_expr <- (<patt_grammar> / <patt_alt>) -> pattExpr
+
+   patt_grammar <- {|
+      <patt_decl> (s <patt_decl>)*
+   |} -> pattGrammar
+
+   patt_decl <- (
+      <patt_name> s '<-' s <patt_expr>
    )
-
-   rule_decl <- (
-      "rule" <idsafe> HS <patt_name> s <patt_expr> s (<end> / %1 -> error)
-   ) -> ruleDecl
-
-   patt_expr <- <patt_alt> -> pattExpr
 
    patt_alt <- {|
       ('|' s)? <patt_seq> (s '|' s <patt_seq>)*
@@ -613,7 +612,7 @@ local patt = [=[
    ) -> pattClass
 
    patt_item <- (
-      <patt_predef> / <patt_range> / { . }
+      <patt_predef> / <patt_range> / ({ . } -> pattTerm)
    )
 
    patt_range   <- ({ . } '-' { [^]] }) -> pattRange
