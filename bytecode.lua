@@ -1,4 +1,11 @@
 --[=[
+LuaJIT 2 code generator.
+
+Copyright (C) 2013-2014 Richard Hundt and contributors.
+See Copyright Notice in nyanga
+]=]
+
+--[=[
  dump   = header proto+ 0U
  header = ESC 'L' 'J' versionB flagsU [namelenU nameB*]
  proto  = lengthU pdata

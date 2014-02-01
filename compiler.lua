@@ -1,3 +1,8 @@
+--[=[
+Copyright (C) 2013-2014 Richard Hundt and contributors.
+See Copyright Notice in nyanga
+]=]
+
 local parser      = require('parser')
 local transformer = require('transformer')
 local generator   = require('generator')

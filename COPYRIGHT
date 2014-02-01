@@ -1,6 +1,3 @@
-#!/usr/bin/env luajit
-
---[=[
 Nyanga -- Modifiable OO Lua Dialect. http://github.com/richardhundt/nyanga
 
 Copyright (C) 2013-2014 Richard Hundt and contributors. All rights reserved.
@@ -24,23 +21,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 [ MIT license: http://www.opensource.org/licenses/mit-license.php ]
-]=]
 
-package.path  = ';;./lib/?.luac;./lib/?.lua;'..package.path
-package.cpath = ';;./lib/?.so;'..package.cpath
-
-do
-   local paths = {
-      ".",
-      "./lib",
-      "./src",
-      os.getenv('HOME').."/.nyanga",
-      "/usr/local/lib/nyanga",
-      "/usr/lib/nyanga",
-   }
-   NYANGA_PATH = table.concat(paths, ';')..';'
-end
-
-local runtime = require('runtime')
-runtime.runopt(arg)
+===============================================================================
 

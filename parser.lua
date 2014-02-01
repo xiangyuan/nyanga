@@ -1,3 +1,8 @@
+--[=[
+Copyright (C) 2013-2014 Richard Hundt and contributors.
+See Copyright Notice in nyanga
+]=]
+
 local util = require("util")
 local re   = require('re')
 local defs = require('parser.defs')

@@ -1,3 +1,8 @@
+--[=[
+Copyright (C) 2013-2014 Richard Hundt and contributors.
+See Copyright Notice in nyanga
+]=]
+
 local ffi      = require('ffi')
 local util     = require('util')
 local lpeg     = require('lpeg')
@@ -595,17 +600,21 @@ local TablePattern = class("TablePattern", nil, function(self)
 
    self.__pairs = function(self)
       local i = 0
-      return function(stat, ctrl)
+      return function(desc, ctrl)
          i = i + 1
-         if stat.keys[i] ~= nil then
-            return stat.keys[i], stat.vals[i]
+         if desc.keys[i] ~= nil then
+            return desc.keys[i], desc.vals[i]
          end
       end, self.descriptor, nil
    end
 
    self.__match = function(self, that)
       local desc = self.descriptor
-      for k, v in pairs(desc) do
+      local meta = self.metatable
+      if meta and getmetatable(that) ~= meta then
+         return false
+      end
+      for k, v in pairs(self) do
          if v == __var__ then
             if that[k] == nil then
                return false
@@ -637,9 +646,12 @@ local ArrayPattern = class("ArrayPattern", nil, function(self)
    end
 
    self.__match = function(self, that)
-      for i=0, self.length - 1 do
-         if self[i] ~= __var__ then
-            if not __match__(that[i], self[i]) then
+      if getmetatable(that) ~= Array then
+         return false
+      end
+      for k, v in pairs(self) do
+         if v ~= __var__ then
+            if not __match__(that[i], v) then
                return false
             end
          end
