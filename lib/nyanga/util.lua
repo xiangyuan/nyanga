@@ -3,7 +3,7 @@ Copyright (C) 2013-2014 Richard Hundt and contributors.
 See Copyright Notice in nyanga
 ]=]
 
-local exports = { }
+local export = { }
 
 local function dump(node, level)
    if not level then level = 1 end
@@ -52,22 +52,22 @@ local function dump(node, level)
    return table.concat(buff, "")
 end
 
-exports.dump = dump
+export.dump = dump
 
 local ID = 0
-exports.genid = function(prefix)
+export.genid = function(prefix)
    ID = ID + 1
    prefix = prefix or '_'
    return '_'..prefix..ID
 end
 
-function exports.extend(base, with)
+function export.extend(base, with)
    with.__super = base
    with.__index = with
    return setmetatable(with, { __index = base, __call = base.__call })
 end
 
-function exports.fold_left(list, func)
+function export.fold_left(list, func)
    local accu = list[1]
    for i=2, #list do
       accu = func(accu, list[i])
@@ -75,7 +75,7 @@ function exports.fold_left(list, func)
    return accu
 end
 
-function exports.fold_right(list, func)
+function export.fold_right(list, func)
    local accu = list[#list]
    for i=#list - 1, 1, -1 do
       accu = func(accu, list[i])
@@ -84,4 +84,4 @@ function exports.fold_right(list, func)
 end
 
 
-return exports
+return export

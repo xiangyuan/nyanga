@@ -3,9 +3,9 @@ Copyright (C) 2013-2014 Richard Hundt and contributors.
 See Copyright Notice in nyanga
 ]=]
 
-local util = require("util")
+local util = require("nyanga.util")
 local re   = require('re')
-local defs = require('parser.defs')
+local defs = require('nyanga.parser.defs')
 local lpeg = require('lpeg')
 lpeg.setmaxstack(1024)
 

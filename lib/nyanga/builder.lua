@@ -5,8 +5,8 @@ See Copyright Notice in nyanga
 
 local exports = { }
 
-local util   = require('util')
-local syntax = require("syntax")
+local util   = require('nyanga.util')
+local syntax = require("nyanga.syntax")
 
 function exports.tempid(prefix, loc)
    return exports.identifier(util.genid(prefix), loc)

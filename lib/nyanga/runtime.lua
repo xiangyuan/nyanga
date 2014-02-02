@@ -4,11 +4,12 @@ See Copyright Notice in nyanga
 ]=]
 
 local ffi      = require('ffi')
-local util     = require('util')
 local lpeg     = require('lpeg')
-local compiler = require('compiler')
+local compiler = require('nyanga.compiler')
 
 local Range
+local export = { }
+package.loaded['nyanga.runtime'] = export
 
 local function loader(filename)
    if string.match(filename, "%.nga") then
@@ -20,10 +21,8 @@ local function loader(filename)
             if file then
                local src = file:read("*a")
                local pth = { }
-               local code = compiler.compile(src, '@'..filepath)
-               local body = assert(loadstring(code, '@'..filepath))
-               setfenv(body, GLOBAL)
-               return body
+               local code = compiler.compile(src, filepath)
+               return assert(loadstring(code, '@'..filepath))
             end
          end
       end
@@ -101,6 +100,23 @@ function Class.__tostring(class)
    return string.format("Class<%s>", class.__name)
 end
 
+local special = {
+   __add__ = { mmname = '__add', method = function(a, b) return a:__add__(b) end };
+   __sub__ = { mmname = '__sub', method = function(a, b) return a:__sub__(b) end };
+   __mul__ = { mmname = '__mul', method = function(a, b) return a:__mul__(b) end };
+   __div__ = { mmname = '__div', method = function(a, b) return a:__div__(b) end };
+   __pow__ = { mmname = '__pow', method = function(a, b) return a:__pow__(b) end };
+   __mod__ = { mmname = '__mod', method = function(a, b) return a:__mod__(b) end };
+   __len__ = { mmname = '__len', method = function(a, b) return a:__len__(b) end };
+   __unm__ = { mmname = '__unm', method = function(a, b) return a:__unm__(b) end };
+   __get__ = { mmname = '__getindex',  method = function(a, k) return a:__get__(k) end };
+   __set__ = { mmname = '__setindex',  method = function(a, k, v) a:__set__(k, v) end };
+   __concat__ = { mmname = '__concat', method = function(a, b) return a:__concat__(b) end };
+   __pairs__  = { mmname = '__pairs',  method = function(a, b) return a:__pairs__() end };
+   __ipairs__ = { mmname = '__ipairs', method = function(a, b) return a:__ipairs__() end };
+   __call__   = { mmname = '__call',   method = function(self, ...) return self:__call__(...) end };
+}
+
 local function class(name, base, body)
    local class = { __name = name, __base = base }
    local __getters__ = { }
@@ -145,6 +161,11 @@ local function class(name, base, body)
       end
    end
    body(setmetatable(class, Class), base and base.__members__ or nil)
+   for name, delg in pairs(special) do
+      if __members__[name] then
+         class[delg.mmname] = delg.method
+      end
+   end
    return class
 end
 
@@ -744,41 +765,7 @@ do
    for k,v in pairs(lpeg) do rule[k] = v end
 end
 
-GLOBAL = setmetatable({
-   try    = try;
-   Array  = Array;
-   Error  = Error;
-   RegExp = RegExp;
-   Module = Module;
-   Class  = Class;
-   class  = class;
-   module = module;
-   import = import;
-   yield  = yield;
-   throw  = error;
-   grammar = grammar;
-   rule    = rule;
-   include = include;
-   __range__  = range;
-   __spread__ = spread;
-   __typeof__ = type;
-   __match__  = __match__;
-   __extract__ = extract;
-   __each__   = each;
-   __var__ = __var__;
-   __in__  = __in__;
-   __is__  = __is__;
-   __as__  = setmetatable;
-   ArrayPattern = ArrayPattern;
-   TablePattern = TablePattern;
-   ApplyPattern = ApplyPattern;
-}, { __index = _G })
-
-system = require('lib/system.nga')
-package.loaded['@system'] = system
-
 local function run(code, ...)
-   setfenv(code, GLOBAL)
    code(...)
 end
 
@@ -836,14 +823,43 @@ local function runopt(args)
    end
    local main = assert(loadstring(compiler.compile(code, name, opts), name))
    if not opts['-b'] then
-      setfenv(main, GLOBAL)
       main(unpack(args))
    end
-   --system.run(main, unpack(args))
 end
 
-return {
-   run    = run;
-   runopt = runopt;
+local predef = {
+   try    = try;
+   Array  = Array;
+   Error  = Error;
+   RegExp = RegExp;
+   Module = Module;
+   Class  = Class;
+   class  = class;
+   module = module;
+   import = import;
+   yield  = yield;
+   throw  = error;
+   grammar = grammar;
+   __rule__ = rule;
+   include  = include;
+   __range__  = range;
+   __spread__ = spread;
+   __typeof__ = type;
+   __match__  = __match__;
+   __extract__ = extract;
+   __each__   = each;
+   __var__ = __var__;
+   __in__  = __in__;
+   __is__  = __is__;
+   __as__  = setmetatable;
+   ArrayPattern = ArrayPattern;
+   TablePattern = TablePattern;
+   ApplyPattern = ApplyPattern;
 }
+
+export.run = run
+export.runopt = runopt
+export.predef = predef
+
+return export
 

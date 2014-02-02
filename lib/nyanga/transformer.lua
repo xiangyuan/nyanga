@@ -3,15 +3,17 @@ Copyright (C) 2013-2014 Richard Hundt and contributors.
 See Copyright Notice in nyanga
 ]=]
 
-local B = require('builder')
-local util = require('util')
+local B = require('nyanga.builder')
+local util = require('nyanga.util')
+local DEBUG = true
 
 local Scope = { }
 Scope.__index = Scope
 function Scope.new(outer)
    local self = {
-      outer = outer;
+      outer   = outer;
       entries = { };
+      hoist   = { };
    }
    return setmetatable(self, Scope)
 end
@@ -30,17 +32,42 @@ end
 
 local Context = { }
 Context.__index = Context
-function Context.new()
+function Context.new(src, name)
    local self = {
-      scope = Scope.new()
+      scope = Scope.new();
+      line  = 1;
+      pos   = 0;
+      src   = src;
+      name  = name;
    }
    return setmetatable(self, Context)
+end
+function Context:abort(mesg)
+   mesg = string.format("nyanga: %s:%s: %s\n", self.name, self.line, mesg)
+   if DEBUG then
+      error(mesg)
+   else
+      io.stderr:write(mesg)
+      os.exit(1)
+   end
 end
 function Context:enter()
    self.scope = Scope.new(self.scope)
 end
-function Context:leave()
+function Context:leave(block)
+   block = block or self.scope.hoist
+   -- propagate hoisted statements to outer scope
+   self:unhoist(block)
    self.scope = self.scope.outer
+end
+function Context:hoist(stmt)
+   self.scope.hoist[#self.scope.hoist + 1] = stmt
+end
+function Context:unhoist(block)
+   for i=#self.scope.hoist, 1, -1 do
+      table.insert(block, 1, self.scope.hoist[i])
+   end
+   self.scope.hoist = { }
 end
 function Context:define(name, info)
    info = info or { }
@@ -52,26 +79,82 @@ function Context:lookup(name)
    return info
 end
 
+local function countln(src, pos, idx)
+   local line = 0
+   local index, limit = idx or 1, pos
+   while index <= limit do
+      local s, e = string.find(src, "\n", index, true)
+      if s == nil or e > limit then
+         break
+      end
+      index = e + 1
+      line  = line + 1
+   end
+   return line 
+end
+function Context:sync(node)
+   local pos = node.pos
+   if pos ~= nil and pos > self.pos then
+      local prev = self.pos
+      local line = countln(self.src, pos, prev + 1) + self.line
+      self.line = line
+      self.pos  = pos
+   end
+end
+
 local match = { }
 
+local globals = { }
+for k,v in pairs(_G) do
+   globals[#globals + 1] = k
+end
+
+local predef = {
+   'try', 'Array', 'Error', 'RegExp', 'Module', 'Class', 'class',
+   'module', 'import', 'yield', 'throw', 'grammar', '__rule__',
+   'include', '__range__', '__spread__', '__typeof__', '__match__',
+   '__extract__', '__each__', '__var__', '__in__', '__is__', '__as__',
+   'ArrayPattern', 'TablePattern', 'ApplyPattern'
+}
+
 function match:Chunk(node)
-   self.hoist = { }
-   self.block = { }
+   local block = { }
+   for i=1, #globals do
+      self.ctx:define(globals[i])
+   end
+   -- import predefs from runtime
+   self.ctx:hoist(B.localDeclaration(
+      { B.identifier('__nyanga__') },
+      { B.memberExpression(
+         B.callExpression(B.identifier('require'), {B.literal('nyanga.runtime')}),
+         B.identifier('predef')
+      ) }
+   ))
+   local imports = { }
+   local symbols = { }
+   for i=1, #predef do
+      local symbol = B.identifier(predef[i])
+      symbols[#symbols + 1] = symbol
+      imports[#imports + 1] = B.memberExpression(
+         B.identifier('__nyanga__'), symbol
+      )
+   end
+
+   self.ctx:hoist(B.localDeclaration(symbols, imports))
    local export = B.identifier('export')
-   self.block[#self.block + 1] = B.localDeclaration({ export }, { B.table({}) })
+   block[#block + 1] = B.localDeclaration({ export }, { B.table({}) })
    for i=1, #node.body do
       local stmt = self:get(node.body[i])
-      self.block[#self.block + 1] = stmt
+      block[#block + 1] = stmt
    end
-   for i=#self.hoist, 1, -1 do
-      table.insert(self.block, 1, self.hoist[i])
-   end
-   self.block[#self.block + 1] = B.returnStatement({ export })
-   return B.chunk(self.block)
+   self.ctx:unhoist(block)
+   block[#block + 1] = B.returnStatement({ export })
+   return B.chunk(block)
 end
 function match:ImportStatement(node)
    local args = { self:get(node.from) }
    for i=1, #node.names do
+      self.ctx:define(node.names[i].name)
       args[#args + 1] = B.literal(node.names[i].name)
    end
    return B.localDeclaration(self:list(node.names), {
@@ -94,6 +177,12 @@ function match:Literal(node)
    return B.literal(node.value)
 end
 function match:Identifier(node)
+   if node.check then
+      local info = self.ctx:lookup(node.name)
+      if info == nil then
+         self.ctx:abort(string.format("'%s' used but not defined", node.name))
+      end
+   end
    return B.identifier(node.name)
 end
 function match:VariableDeclaration(node)
@@ -360,10 +449,14 @@ end
 function match:IfStatement(node)
    local test, cons, altn = self:get(node.test)
    if node.consequent then
+      self.ctx:enter()
       cons = self:get(node.consequent)
+      self.ctx:leave()
    end
    if node.alternate then
+      self.ctx:enter()
       altn = self:get(node.alternate)
+      self.ctx:leave()
    end
    local stmt = B.ifStatement(test, cons, altn)
    return stmt
@@ -378,8 +471,7 @@ function match:GivenStatement(node)
    local cases = { }
    for i=1, #node.cases do
       local case = node.cases[i]
-      local test
-      local cons = self:get(case.consequent)
+      local test, cons
       if case.test then
          local t = case.test.type
          if t == 'ArrayPattern' or t == 'TablePattern' or t == 'ApplyPattern' then
@@ -387,12 +479,11 @@ function match:GivenStatement(node)
             local temp = B.tempid()
             self.ctx:define(temp.name)
 
-            body[#body + 1] = B.localDeclaration(
-               { temp }, { self:get(case.test) }
-            )
+            body[#body + 1] = B.localDeclaration({ temp }, { self:get(case.test) })
             test = B.callExpression(B.identifier('__match__'), { temp, disc })
 
-            local head = { }
+            self.ctx:enter() -- consequent
+            local into = { }
             local bind = extract_bindings(case.test)
             local vars = { }
             for i=1, #bind do
@@ -403,25 +494,28 @@ function match:GivenStatement(node)
                end
                bind[i] = self:get(n)
             end
+
+            cons = self:get(case.consequent)
+
             if #vars > 0 then
-               head[#head + 1] = B.localDeclaration(vars, { })
+               self.ctx:hoist(B.localDeclaration(vars, { }))
             end
 
-            head[#head + 1] = B.assignmentExpression(
+            self.ctx:hoist(B.assignmentExpression(
                bind,
                { B.callExpression(B.identifier('__extract__'), { temp, disc }) }
-            )
-            for i=1, #cons.body do
-               head[#head + 1] = cons.body[i]
-            end
-            cons = B.blockStatement(head)
+            ))
+            self.ctx:leave(cons.body)
          elseif t == 'Literal' then
             test = B.binaryExpression("==", disc, self:get(case.test))
+            cons = self:get(case.consequent)
          else
             test = self:get(case.test)
+            cons = self:get(case.consequent)
          end
       else
          test = B.literal(true)
+         cons = self:get(case.consequent)
       end
       cases[#cases + 1] = B.ifStatement(test, cons)
    end
@@ -563,6 +657,7 @@ end
 function match:FunctionDeclaration(node)
    local name
    if not node.expression then
+      self.ctx:define(node.id[1].name)
       name = self:get(node.id[1])
    end
 
@@ -573,8 +668,8 @@ function match:FunctionDeclaration(node)
    self.ctx:enter()
 
    for i=1, #node.params do
+      self.ctx:define(node.params[i].name)
       local name = self:get(node.params[i])
-      self.ctx:define(name.name)
       params[#params + 1] = name
       if node.defaults[i] then
          local test = B.binaryExpression("==", name, B.literal(nil))
@@ -589,6 +684,7 @@ function match:FunctionDeclaration(node)
    if node.rest then
       params[#params + 1] = B.vararg()
       if node.rest ~= "" then
+         self.ctx:define(node.rest.name)
          prelude[#prelude + 1] = B.localDeclaration(
             { B.identifier(node.rest.name) },
             { B.callExpression(B.identifier('Array'), { B.vararg() }) }
@@ -597,6 +693,8 @@ function match:FunctionDeclaration(node)
    end
 
    local body = self:get(node.body)
+   self.ctx:leave()
+
    for i=#prelude, 1, -1 do
       table.insert(body.body, 1, prelude[i])
    end
@@ -615,8 +713,6 @@ function match:FunctionDeclaration(node)
    else
       func = B.functionExpression(params, body, vararg)
    end
-
-   self.ctx:leave()
 
    if node.expression then
       return func
@@ -637,16 +733,14 @@ function match:IncludeStatement(node)
 end
 
 function match:ModuleDeclaration(node)
+   self.ctx:define(node.id.name)
    local name = self:get(node.id)
 
    local properties = { }
    local body = { }
 
-   self.hoist[#self.hoist + 1] = B.localDeclaration({ name }, { })
-
-   local outer_hoist = self.hoist
-   self.hoist = { }
-
+   self.ctx:hoist(B.localDeclaration({ name }, { }))
+   self.ctx:enter()
    for i=1, #node.body do
       if node.body[i].type == "PropertyDefinition" then
          local prop = node.body[i]
@@ -706,11 +800,8 @@ function match:ModuleDeclaration(node)
       end
    end
 
-   for i=#self.hoist, 1, -1 do
-      table.insert(body, 1, self.hoist[i])
-   end
-
-   self.hoist = outer_hoist
+   self.ctx:unhoist(body)
+   self.ctx:leave()
 
    local init = B.callExpression(
       B.identifier('module'), {
@@ -728,16 +819,19 @@ function match:ModuleDeclaration(node)
 end
 
 function match:ClassDeclaration(node)
+   self.ctx:define(node.id.name)
+
    local name = self:get(node.id)
    local base = node.base and self:get(node.base) or B.literal(nil)
 
    local properties = { }
    local body = { }
 
-   self.hoist[#self.hoist + 1] = B.localDeclaration({ name }, { })
+   self.ctx:hoist(B.localDeclaration({ name }, { }))
+   self.ctx:enter()
 
-   local outer_hoist = self.hoist
-   self.hoist = { }
+   self.ctx:define('self')
+   self.ctx:define('super')
 
    for i=1, #node.body do
       if node.body[i].type == "PropertyDefinition" then
@@ -804,11 +898,8 @@ function match:ClassDeclaration(node)
       end
    end
 
-   for i=#self.hoist, 1, -1 do
-      table.insert(body, 1, self.hoist[i])
-   end
-
-   self.hoist = outer_hoist
+   self.ctx:unhoist(body)
+   self.ctx:leave()
 
    local init = B.callExpression(
       B.identifier('class'), {
@@ -887,10 +978,12 @@ function match:WhileStatement(node)
    local loop = B.identifier(util.genid())
    local save = self.loop
    self.loop = loop
+   self.ctx:enter()
    local body = B.blockStatement{
       self:get(node.body);
       B.labelStatement(loop);
    }
+   self.ctx:leave()
    self.loop = save
    return B.whileStatement(self:get(node.test), body)
 end
@@ -898,10 +991,12 @@ function match:RepeatStatement(node)
    local loop = B.identifier(util.genid())
    local save = self.loop
    self.loop = loop
+   self.ctx:enter()
    local body = B.blockStatement{
       self:get(node.body);
       B.labelStatement(loop);
    }
+   self.ctx:leave()
    self.loop = save
    return B.repeatStatement(self:get(node.test), body)
 end
@@ -909,7 +1004,8 @@ function match:ForStatement(node)
    local loop = B.identifier(util.genid())
    local save = self.loop
    self.loop = loop
-
+   self.ctx:enter()
+   self.ctx:define(node.name.name)
    local name = self:get(node.name)
    local init = self:get(node.init)
    local last = self:get(node.last)
@@ -919,7 +1015,7 @@ function match:ForStatement(node)
       B.labelStatement(loop)
    }
    self.loop = save
-
+   self.ctx:leave()
    return B.forStatement(B.forInit(name, init), last, step, body)
 end
 function match:ForInStatement(node)
@@ -931,8 +1027,10 @@ function match:ForInStatement(node)
    local temp = B.tempid()
    local iter = B.callExpression(B.identifier('__each__'), { self:get(node.right) })
 
+   self.ctx:enter()
    local left = { }
    for i=1, #node.left do
+      self.ctx:define(node.left[i].name)
       left[i] = self:get(node.left[i])
    end
 
@@ -940,8 +1038,9 @@ function match:ForInStatement(node)
       self:get(node.body);
       B.labelStatement(loop);
    }
-   self.loop = save
 
+   self.loop = save
+   self.ctx:leave()
    return B.forInStatement(B.forNames(left), iter, body)
 end
 --[[
@@ -1034,6 +1133,9 @@ function match:ComprehensionBlock(node)
    local iter = B.callExpression(
       B.identifier('__each__'), { self:get(node.right) }
    )
+   for i=1, #node.left do
+      self.ctx:define(node.left[i].name)
+   end
    local left = self:list(node.left)
    local body = { }
    return B.forInStatement(B.forNames(left), iter, B.blockStatement(body))
@@ -1041,7 +1143,7 @@ end
 
 function match:RegExp(node)
    local body = B.callExpression(
-      B.memberExpression(B.identifier('rule'), B.identifier('P')),
+      B.memberExpression(B.identifier('__rule__'), B.identifier('P')),
       { self:get(node.pattern) }
    )
    return B.callExpression(
@@ -1050,8 +1152,9 @@ function match:RegExp(node)
    )
 end
 function match:GrammarDeclaration(node)
+   self.ctx:define(node.id.name)
    return B.localDeclaration(
-      { self:get(node.name) }, {
+      { self:get(node.id) }, {
          B.callExpression(
             B.identifier('grammar'),
             { B.literal(node.name.name), self:get(node.body) }
@@ -1069,25 +1172,25 @@ function match:PatternGrammar(node)
       tab[key] = val
    end
    return B.callExpression(
-      B.memberExpression(B.identifier('rule'), B.identifier('P')),
+      B.memberExpression(B.identifier('__rule__'), B.identifier('P')),
       { B.table(tab) }
    )
 end
 function match:PatternAlternate(node)
    return B.callExpression(
-      B.memberExpression(B.identifier('rule'), B.identifier('__add')),
+      B.memberExpression(B.identifier('__rule__'), B.identifier('__add')),
       { self:get(node.left), self:get(node.right) }
    )
 end
 function match:PatternSequence(node)
    return B.callExpression(
-      B.memberExpression(B.identifier('rule'), B.identifier('__mul')),
+      B.memberExpression(B.identifier('__rule__'), B.identifier('__mul')),
       { self:get(node.left), self:get(node.right) }
    )
 end
 function match:PatternAny(node)
    return B.callExpression(
-      B.memberExpression(B.identifier('rule'), B.identifier('P')),
+      B.memberExpression(B.identifier('__rule__'), B.identifier('P')),
       { B.literal(1) }
    )
 end
@@ -1099,7 +1202,7 @@ function match:PatternAssert(node)
       call = '__unm'
    end
    return B.callExpression(
-      B.memberExpression(B.identifier('rule'), B.identifier(call)),
+      B.memberExpression(B.identifier('__rule__'), B.identifier(call)),
       { self:get(node.argument) }
    )
 end
@@ -1114,38 +1217,38 @@ function match:PatternProduction(node)
       call = '__div'
    end
    return B.callExpression(
-      B.memberExpression(B.identifier('rule'), B.identifier(call)),
+      B.memberExpression(B.identifier('__rule__'), B.identifier(call)),
       { self:get(node.left), self:get(node.right) }
    )
 end
 function match:PatternRepeat(node)
    return B.callExpression(
-      B.memberExpression(B.identifier('rule'), B.identifier('__pow')),
+      B.memberExpression(B.identifier('__rule__'), B.identifier('__pow')),
       { self:get(node.left), B.literal(node.count) }
    )
 end
 
 function match:PatternCaptBasic(node)
    return B.callExpression(
-      B.memberExpression(B.identifier('rule'), B.identifier('C')),
+      B.memberExpression(B.identifier('__rule__'), B.identifier('C')),
       { self:get(node.pattern) }
    )
 end
 function match:PatternCaptSubst(node)
    return B.callExpression(
-      B.memberExpression(B.identifier('rule'), B.identifier('Cs')),
+      B.memberExpression(B.identifier('__rule__'), B.identifier('Cs')),
       { self:get(node.pattern) }
    )
 end
 function match:PatternCaptTable(node)
    return B.callExpression(
-      B.memberExpression(B.identifier('rule'), B.identifier('Ct')),
+      B.memberExpression(B.identifier('__rule__'), B.identifier('Ct')),
       { self:get(node.pattern) }
    )
 end
 function match:PatternCaptConst(node)
    return B.callExpression(
-      B.memberExpression(B.identifier('rule'), B.identifier('Cc')),
+      B.memberExpression(B.identifier('__rule__'), B.identifier('Cc')),
       { self:get(node.pattern) }
    )
 end
@@ -1155,19 +1258,19 @@ function match:PatternCaptGroup(node)
       args[#args + 1] = B.literal(node.name)
    end
    return B.callExpression(
-      B.memberExpression(B.identifier('rule'), B.identifier('Cg')),
+      B.memberExpression(B.identifier('__rule__'), B.identifier('Cg')),
       args
    )
 end
 function match:PatternCaptBack(node)
    return B.callExpression(
-      B.memberExpression(B.identifier('rule'), B.identifier('Cb')),
+      B.memberExpression(B.identifier('__rule__'), B.identifier('Cb')),
       { B.literal(node.name) }
    )
 end
 function match:PatternReference(node)
    return B.callExpression(
-      B.memberExpression(B.identifier('rule'), B.identifier('V')),
+      B.memberExpression(B.identifier('__rule__'), B.identifier('V')),
       { B.literal(node.name) }
    )
 end
@@ -1175,11 +1278,11 @@ function match:PatternClass(node)
    local expr = self:get(node.alternates)
    if node.negated then
       local any = B.callExpression(
-         B.memberExpression(B.identifier('rule'), B.identifier('P')),
+         B.memberExpression(B.identifier('__rule__'), B.identifier('P')),
          { B.literal(1) }
       )
       expr = B.callExpression(
-         B.memberExpression(B.identifier('rule'), B.identifier('__sub')),
+         B.memberExpression(B.identifier('__rule__'), B.identifier('__sub')),
          { any, expr }
       )
    end
@@ -1187,68 +1290,41 @@ function match:PatternClass(node)
 end
 function match:PatternRange(node)
    return B.callExpression(
-      B.memberExpression(B.identifier('rule'), B.identifier('R')),
+      B.memberExpression(B.identifier('__rule__'), B.identifier('R')),
       { B.literal(node.left..node.right) }
    )
 end
 function match:PatternTerm(node)
    return B.callExpression(
-      B.memberExpression(B.identifier('rule'), B.identifier('P')),
+      B.memberExpression(B.identifier('__rule__'), B.identifier('P')),
       { B.literal(node.literal) }
    )
 end
 function match:PatternPredef(node)
    return B.callExpression(
-      B.memberExpression(B.identifier('rule'), B.identifier('Def')),
+      B.memberExpression(B.identifier('__rule__'), B.identifier('Def')),
       { B.literal(node.name) }
    )
 end
 function match:PatternArgument(node)
    local narg = string.match(node.name, '^(%d+)$')
    return B.callExpression(
-      B.memberExpression(B.identifier('rule'), B.identifier('Carg')),
+      B.memberExpression(B.identifier('__rule__'), B.identifier('Carg')),
       { tonumber(narg) }
    )
 end
 
-local function countln(src, pos, idx)
-   local line = 0
-   local index, limit = idx or 1, pos
-   while index <= limit do
-      local s, e = string.find(src, "\n", index, true)
-      if s == nil or e > limit then
-         break
-      end
-      index = e + 1
-      line  = line + 1
-   end
-   return line 
-end
-
-local function transform(tree, src)
+local function transform(tree, src, name)
    local self = { }
-   self.line = 1
-   self.pos  = 0
-
-   self.ctx = Context.new()
-
-   function self:sync(node)
-      local pos = node.pos
-      if pos ~= nil and pos > self.pos then
-         local prev = self.pos
-         local line = countln(src, pos, prev + 1) + self.line
-         self.line = line
-         self.pos = pos
-      end
-   end
+   self.ctx = Context.new(src, name)
 
    function self:get(node, ...)
       if not match[node.type] then
          error("no handler for "..tostring(node.type))
       end
-      self:sync(node)
-      local line = self.line
-      local out = match[node.type](self, node, ...)
+      self.ctx:sync(node)
+      local line = self.ctx.line
+      local out  = match[node.type](self, node, ...)
       if out then out.line = line end
       return out
    end

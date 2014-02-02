@@ -32,7 +32,7 @@ See Copyright Notice in nyanga
 
 local bit  = require 'bit'
 local ffi  = require 'ffi'
-local util = require 'util'
+local util = require 'nyanga.util'
 
 local typeof = getmetatable
 

@@ -41,6 +41,6 @@ do
    NYANGA_PATH = table.concat(paths, ';')..';'
 end
 
-local runtime = require('runtime')
+local runtime = require('nyanga.runtime')
 runtime.runopt(arg)
 

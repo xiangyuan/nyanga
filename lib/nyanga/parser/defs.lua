@@ -4,7 +4,7 @@ See Copyright Notice in nyanga
 ]=]
 
 local defs = { }
-local util = require('util')
+local util = require('nyanga.util')
 
 defs.tonumber = function(s)
    local n = string.gsub(s, '_', '')
@@ -47,6 +47,9 @@ function defs.stmt(pos, node)
 end
 function defs.term(pos, node)
    node.pos = pos
+   if node.type == 'Identifier' then
+      node.check = true
+   end
    return node
 end
 function defs.expr(pos, node)
@@ -467,10 +470,7 @@ function defs.regexExpr(expr)
 end
 
 function defs.grammarDecl(name, body)
-   return { type = "GrammarDeclaration", name = name, body = body }
-end
-function defs.ruleDecl(name, expr)
-   return { type = "RuleDeclaration", name = name, pattern = expr }
+   return { type = "GrammarDeclaration", id = name, body = body }
 end
 function defs.pattGrammar(rules)
    return { type = "PatternGrammar", rules = rules }
