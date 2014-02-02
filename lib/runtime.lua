@@ -9,7 +9,6 @@ local lpeg     = require('lpeg')
 local compiler = require('compiler')
 
 local Range
-local __unapply__, unapply
 
 local function loader(filename)
    if string.match(filename, "%.nga") then
@@ -104,21 +103,25 @@ end
 
 local function class(name, base, body)
    local class = { __name = name, __base = base }
-   class.__getters__ = { }
-   class.__setters__ = { }
-   class.__members__ = { }
+   local __getters__ = { }
+   local __setters__ = { }
+   local __members__ = { }
    if base then
-      setmetatable(class.__getters__, { __index = base.__getters__ })
-      setmetatable(class.__setters__, { __index = base.__setters__ })
-      setmetatable(class.__members__, { __index = base.__members__ })
+      setmetatable(__getters__, { __index = base.__getters__ })
+      setmetatable(__setters__, { __index = base.__setters__ })
+      setmetatable(__members__, { __index = base.__members__ })
    end
 
+   class.__getters__ = __getters__
+   class.__setters__ = __setters__
+   class.__members__ = __members__
+
    function class.__index(o, k)
-      if class.__getters__[k] then
-         return class.__getters__[k](o)
+      if __getters__[k] then
+         return __getters__[k](o)
       end
-      if class.__members__[k] then
-         return class.__members__[k]
+      if __members__[k] then
+         return __members__[k]
       end
       if class.__getindex then
          return class.__getindex(o, k)
@@ -126,8 +129,8 @@ local function class(name, base, body)
       return nil
    end
    function class.__newindex(o, k, v)
-      if class.__setters__[k] then
-         class.__setters__[k](o, v)
+      if __setters__[k] then
+         __setters__[k](o, v)
       elseif class.__setindex then
          class.__setindex(o, k, v)
       else
@@ -141,7 +144,7 @@ local function class(name, base, body)
          return string.format('<%s>:%p', name, o)
       end
    end
-   body(setmetatable(class, Class), base and base.__members__ or { })
+   body(setmetatable(class, Class), base and base.__members__ or nil)
    return class
 end
 
@@ -484,6 +487,189 @@ local function yield(...)
    end
 end
 
+local ArrayPattern, TablePattern, ApplyPattern
+
+local __var__ = newproxy()
+
+local function __match__(that, this)
+   local type_this = type(this)
+   local type_that = type(that)
+
+   local meta_this = getmetatable(this)
+   local meta_that = getmetatable(that)
+   if meta_that then
+      if meta_that.__match then
+         return meta_that.__match(that, this)
+      elseif meta_that == Class then
+         return meta_this == that
+      else
+         return meta_this == meta_that
+      end
+   elseif type_this ~= type_that then
+      return false
+   else
+      return this == that
+   end
+end
+
+local function expand(iter, stat, ctrl, ...)
+   if iter == nil then return ... end
+   local k, v = iter(stat, ctrl)
+   if k == nil then return ... end
+   if type(v) == 'table' then
+      return expand(v[1], v[2], v[3], expand(iter, stat, k, ...))
+   end
+   return v, expand(iter, stat, k, ...)
+end
+
+local function extract(patt, subj)
+   return expand(patt:bind(subj))
+end
+
+local TablePattern = class("TablePattern", nil, function(self)
+   self.__apply = function(self, keys, desc, meta)
+      return setmetatable({
+         keys = keys;
+         desc = desc;
+         meta = meta;
+      }, self)
+   end
+
+   self.__pairs = function(self)
+      local i = 0
+      return function(self, _)
+         i = i + 1
+         local k = self.keys[i]
+         if k ~= nil then
+            return k, self.desc[k]
+         end
+      end, self, nil
+   end
+
+   self.__match = function(self, that)
+      local desc = self.desc
+      local meta = self.meta
+      if meta and getmetatable(that) ~= meta then
+         return false
+      end
+      for k, v in pairs(self) do
+         if v == __var__ then
+            if that[k] == nil then
+               return false
+            end
+         else
+            if not __match__(that[k], v) then
+               return false
+            end
+         end
+      end
+      return true
+   end
+
+   self.__members__.bind = function(self, subj)
+      if subj == nil then return end
+      local meta = self.meta
+      local iter, stat, ctrl = pairs(self)
+      return function(stat, ctrl)
+         for k, v in iter, stat, ctrl do
+            if v == __var__ then
+               if meta then
+                  -- XXX: assert instead?
+                  return k, meta.__index(subj, k)
+               else
+                  return k, subj[k]
+               end
+            elseif type(v) == 'table' then
+               return k, { v:bind(subj[k]) }
+            end
+         end
+      end, stat, ctrl
+   end
+end)
+
+local ArrayPattern = class("ArrayPattern", nil, function(self)
+   self.__apply = function(self, ...)
+      return setmetatable({
+         length = select('#', ...), [0] = select(1, ...), select(2, ...)
+      }, self)
+   end
+
+   self.__ipairs = function(self)
+      return function(self, ctrl)
+         local i = ctrl + 1
+         if i < self.length then
+            return i, self[i]
+         end
+      end, self, -1
+   end
+
+   self.__match = function(self, that)
+      if getmetatable(that) ~= Array then
+         return false
+      end
+      for k, v in ipairs(self) do
+         if v ~= __var__ then
+            if not __match__(that[i], v) then
+               return false
+            end
+         end
+      end
+      return true
+   end
+
+   self.__members__.bind = function(self, subj)
+      if subj == nil then return end
+      local iter, stat, ctrl = ipairs(self)
+      return function(stat, ctrl)
+         for i, v in iter, stat, ctrl do
+            if v == __var__ then
+               return i, subj[i]
+            elseif type(v) == 'table' then
+               return i, { v:bind(subj[i]) }
+            end
+         end
+      end, stat, ctrl
+   end
+
+end)
+
+local ApplyPattern = class("ApplyPattern", nil, function(self)
+   self.__apply = function(self, base, ...)
+      return setmetatable({
+         base = base,
+         narg = select('#', ...),
+         ...
+      }, self)
+   end
+
+   self.__match = function(self, that)
+      local base = self.base
+      if base.__match then
+         return base.__match(base, that)
+      end
+      return getmetatable(that) == self.base
+   end
+
+   self.__members__.bind = function(self, subj)
+      if subj == nil then return end
+      local i = 1
+      local subj = self.base.__unapply(subj)
+      return function(self)
+         while i <= self.narg do
+            local k = i
+            local v = self[i]
+            i = i + 1
+            if v == __var__ then
+               return k, subj[k]
+            elseif type(v) == 'table' then
+               return k, { v:bind(subj[k]) }
+            end
+         end
+      end, self, nil
+   end
+
+end)
+
 local Grammar = { }
 Grammar.__index = { }
 Grammar.__index.match = function(self, ...)
@@ -495,16 +681,15 @@ end
 Grammar.__tostring = function(self)
    return string.format('Grammar<%s>', tostring(self.__name))
 end
-Grammar.__index.__unapply = function(self, subj, i, s, c, ...)
-   subj = { self.__patt:match(subj) }
-   return unapply(subj, i, s, c, ...)
-end
 Grammar.__index.__match = function(self, ...)
    return self.__patt:match(...)
 end
 
 local function grammar(name, patt)
    local self = { __name = name, __patt = patt }
+   self.__unapply = function(subj)
+      return { self.__patt:match(subj) }
+   end
    return setmetatable(self, Grammar)
 end
 
@@ -559,166 +744,6 @@ do
    for k,v in pairs(lpeg) do rule[k] = v end
 end
 
-local ArrayPattern, TablePattern, ApplyPattern
-
-local __var__ = newproxy()
-
-local function __match__(that, this)
-   local type_this = type(this)
-   local type_that = type(that)
-
-   local meta_this = getmetatable(this)
-   local meta_that = getmetatable(that)
-   if meta_that then
-      if meta_that.__match then
-         return meta_that.__match(that, this)
-      elseif meta_that == Class then
-         return meta_this == that
-      else
-         return meta_this == meta_that
-      end
-   elseif type_this ~= type_that then
-      return false
-   else
-      return this == that
-   end
-end
-
--- generic destructuring
-function unapply(subj, iter, stat, ctrl, ...)
-   for k, v in iter, stat, ctrl do
-      if v == __var__ then
-         for _k, _v in pairs(subj) do
-            if _k == k then
-               return _v, unapply(subj, iter, stat, k, ...)
-            end
-         end
-      elseif type(v) == 'table' then
-         for _k, _v in pairs(subj) do
-            if _k == k then
-               return __unapply__(v, _v, unapply(subj, iter, stat, k, ...))
-            end
-         end
-      end
-   end
-   return ...
-end
-
-function __unapply__(patt, subj, ...)
-   local i, s, c = pairs(patt)
-   local m = getmetatable(patt)
-   if m and m.__unapply then
-      return m.__unapply(patt, subj, i, s, c, ...)
-   end
-   return unapply(subj, i, s, c, ...)
-end
-
-
-local TablePattern = class("TablePattern", nil, function(self)
-   self.__apply = function(self, desc, meta)
-      return setmetatable({
-         descriptor = desc;
-         metatable  = meta;
-      }, self)
-   end
-
-   self.__pairs = function(self)
-      local i = 0
-      return function(desc, ctrl)
-         i = i + 1
-         if desc.keys[i] ~= nil then
-            return desc.keys[i], desc.vals[i]
-         end
-      end, self.descriptor, nil
-   end
-
-   self.__match = function(self, that)
-      local desc = self.descriptor
-      local meta = self.metatable
-      if meta and getmetatable(that) ~= meta then
-         return false
-      end
-      for k, v in pairs(self) do
-         if v == __var__ then
-            if that[k] == nil then
-               return false
-            end
-         else
-            if not __match__(that[k], v) then
-               return false
-            end
-         end
-      end
-      return true
-   end
-end)
-
-local ArrayPattern = class("ArrayPattern", nil, function(self)
-   self.__apply = function(self, ...)
-      return setmetatable({
-         length = select('#', ...), [0] = select(1, ...), select(2, ...)
-      }, self)
-   end
-
-   self.__pairs = function(self)
-      return function(self, ctrl)
-         local i = ctrl + 1
-         if i < self.length then
-            return i, self[i]
-         end
-      end, self, -1
-   end
-
-   self.__match = function(self, that)
-      if getmetatable(that) ~= Array then
-         return false
-      end
-      for k, v in pairs(self) do
-         if v ~= __var__ then
-            if not __match__(that[i], v) then
-               return false
-            end
-         end
-      end
-      return true
-   end
-end)
-
-local ApplyPattern = class("ApplyPattern", nil, function(self)
-   self.__apply = function(self, base, ...)
-      return setmetatable({
-         base = base,
-         narg = select('#', ...),
-         ...
-      }, self)
-   end
-
-   self.__pairs = function(self)
-      return function(self, ctrl)
-         local i = ctrl + 1
-         if i <= self.narg then
-            return i, self[i]
-         end
-      end, self, 0
-   end
-
-   self.__unapply = function(self, subj, i, s, c, ...)
-      local base = self.base
-      if base.__unapply then
-         return base.__unapply(base, subj, i, s, c, ...)
-      end
-      return unapply(subj, i, s, c, ...)
-   end
-
-   self.__match = function(self, that)
-      local base = self.base
-      if base.__match then
-         return base.__match(base, that)
-      end
-      return getmetatable(that) == self.base
-   end
-end)
-
 GLOBAL = setmetatable({
    try    = try;
    Array  = Array;
@@ -738,7 +763,7 @@ GLOBAL = setmetatable({
    __spread__ = spread;
    __typeof__ = type;
    __match__  = __match__;
-   __unapply__ = __unapply__;
+   __extract__ = extract;
    __each__   = each;
    __var__ = __var__;
    __in__  = __in__;

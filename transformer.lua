@@ -229,7 +229,7 @@ function match:AssignmentExpression(node)
       body[#body + 1] = B.assignmentExpression(
          dest[i].left, {
             B.callExpression(
-               B.identifier('__unapply__'), { dest[i].patt, dest[i].temp }
+               B.identifier('__extract__'), { dest[i].patt, dest[i].temp }
             )
          }
       )
@@ -250,10 +250,9 @@ function match:ArrayPattern(node)
    return B.callExpression(B.identifier('ArrayPattern'), list)
 end
 function match:TablePattern(node)
-   local tab = { }
    local idx = 1
    local keys = { }
-   local vals = { }
+   local desc = { }
    for i=1, #node.entries do
       local n = node.entries[i]
 
@@ -274,11 +273,11 @@ function match:TablePattern(node)
          val = self:get(nv)
       end
       keys[#keys + 1] = key
-      vals[#vals + 1] = val
+      desc[key] = val
    end
-   tab.keys = B.table(keys)
-   tab.vals = B.table(vals)
-   local args = { B.table(tab) }
+   keys = B.table(keys)
+   desc = B.table(desc)
+   local args = { keys, desc }
    if node.coerce then
       args[#args + 1] = self:get(node.coerce)
    end
@@ -410,7 +409,7 @@ function match:GivenStatement(node)
 
             head[#head + 1] = B.assignmentExpression(
                bind,
-               { B.callExpression(B.identifier('__unapply__'), { temp, disc }) }
+               { B.callExpression(B.identifier('__extract__'), { temp, disc }) }
             )
             for i=1, #cons.body do
                head[#head + 1] = cons.body[i]
