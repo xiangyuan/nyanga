@@ -588,10 +588,12 @@ function match:FunctionDeclaration(node)
 
    if node.rest then
       params[#params + 1] = B.vararg()
-      prelude[#prelude + 1] = B.localDeclaration(
-         { B.identifier(node.rest.name) },
-         { B.callExpression(B.identifier('Array'), { B.vararg() }) }
-      )
+      if node.rest ~= "" then
+         prelude[#prelude + 1] = B.localDeclaration(
+            { B.identifier(node.rest.name) },
+            { B.callExpression(B.identifier('Array'), { B.vararg() }) }
+         )
+      end
    end
 
    local body = self:get(node.body)
@@ -824,9 +826,13 @@ function match:ClassDeclaration(node)
 end
 
 function match:SpreadExpression(node)
-   return B.callExpression(
-      B.identifier('__spread__'), { self:get(node.argument) }
-   )
+   if node.argument ~= '...' then
+      return B.callExpression(
+         B.identifier('__spread__'), { self:get(node.argument) }
+      )
+   else
+      return B.vararg()
+   end
 end
 function match:NilExpression(node)
    return B.literal(nil)

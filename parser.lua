@@ -328,7 +328,7 @@ local patt = [=[
       / <param_rest>
    )
 
-   param_rest <- {| "..." {:name: <ident> :} {:rest: '' -> 'true' :} |}
+   param_rest <- {| "..." {:name: <ident>? :} {:rest: '' -> 'true' :} |}
 
    block_stmt <- (
       {| (<stmt> (<sep> s <stmt>)* <sep>?)? |}
@@ -398,7 +398,7 @@ local patt = [=[
    expr <- ({} (<infix_expr> / <spread_expr>)) -> expr
 
    spread_expr <- (
-      "..." <postfix_expr>
+      "..." <postfix_expr>?
    ) -> spreadExpr
 
    nil_expr <- (
