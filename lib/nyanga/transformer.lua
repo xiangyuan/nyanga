@@ -657,8 +657,10 @@ end
 function match:FunctionDeclaration(node)
    local name
    if not node.expression then
-      self.ctx:define(node.id[1].name)
-      name = self:get(node.id[1])
+      if node.name.type == 'Identifier' then
+         self.ctx:define(node.name.name)
+      end
+      name = self:get(node.name)
    end
 
    local params  = { }
@@ -718,11 +720,11 @@ function match:FunctionDeclaration(node)
       return func
    end
 
-   local decl = B.localDeclaration({ name }, { })
-   local frag = { decl }
-
+   local frag = { }
+   if node.name.type == 'Identifier' then
+      frag[#frag + 1] = B.localDeclaration({ name }, { })
+   end
    frag[#frag + 1] = B.assignmentExpression({ name }, { func });
-
    return B.blockStatement(frag)
 end
 
@@ -736,70 +738,10 @@ function match:ModuleDeclaration(node)
    self.ctx:define(node.id.name)
    local name = self:get(node.id)
 
-   local properties = { }
-   local body = { }
-
    self.ctx:hoist(B.localDeclaration({ name }, { }))
    self.ctx:enter()
-   for i=1, #node.body do
-      if node.body[i].type == "PropertyDefinition" then
-         local prop = node.body[i]
-         local desc = properties[prop.key.name] or { }
-         if prop.kind == 'get' then
-            desc.get = self:get(prop)
-         elseif prop.kind == 'set' then
-            desc.set = self:get(prop)
-         else
-            desc.value = self:get(prop)
-         end
-
-         properties[prop.key.name] = desc
-
-         if desc.get then
-            -- self.__getters__[key] = desc.get
-            body[#body + 1] = B.assignmentExpression(
-               { B.memberExpression(
-                  B.memberExpression(B.identifier("self"), B.identifier("__getters__")),
-                  B.identifier(prop.key.name)
-               ) },
-               { desc.get }
-            )
-         elseif desc.set then
-            -- self.__setters__[key] = desc.set
-            body[#body + 1] = B.assignmentExpression(
-               { B.memberExpression(
-                  B.memberExpression(B.identifier("self"), B.identifier("__setters__")),
-                  B.identifier(prop.key.name)
-               ) },
-               { desc.set }
-            )
-         else
-            -- self.__members__[key] = desc.value
-            local base
-            if prop.static then
-               base = B.identifier("self")
-            else
-               base = B.memberExpression(
-                  B.identifier("self"), B.identifier("__members__")
-               )
-            end
-            body[#body + 1] = B.assignmentExpression(
-               { B.memberExpression(base, B.identifier(prop.key.name)) },
-               { desc.value }
-            )
-         end
-      elseif node.body[i].type == 'ClassDeclaration' or node.body[i].type == "ModuleDeclaration" then
-         body[#body + 1] = self:get(node.body[i])
-         local inner_name = self:get(node.body[i].id)
-         body[#body + 1] = B.assignmentExpression(
-            { B.memberExpression(B.identifier("self"), inner_name) },
-            { inner_name }
-         )
-      else
-         body[#body + 1] = self:get(node.body[i])
-      end
-   end
-
+   self.ctx:define('self')
+   local body = self:get(node.body)
    self.ctx:unhoist(body)
    self.ctx:leave()
 
@@ -812,10 +754,7 @@ function match:ModuleDeclaration(node)
          )
       }
    )
-
-   return B.assignmentExpression(
-      { name }, { init }
-   )
+   return B.assignmentExpression({ name }, { init })
 end
 
 function match:ClassDeclaration(node)
@@ -824,15 +763,30 @@ function match:ClassDeclaration(node)
    local name = self:get(node.id)
    local base = node.base and self:get(node.base) or B.literal(nil)
 
-   local properties = { }
-   local body = { }
-
    self.ctx:hoist(B.localDeclaration({ name }, { }))
    self.ctx:enter()
 
    self.ctx:define('self')
    self.ctx:define('super')
+   local body = self:get(node.body)
+   self.ctx:unhoist(body)
+   self.ctx:leave()
 
+   local init = B.callExpression(
+      B.identifier('class'), {
+         B.literal(node.id.name), base,
+         B.functionExpression(
+            { B.identifier('self'), B.identifier('super') },
+            B.blockStatement(body)
+         )
+      }
+   )
+   return B.assignmentExpression({ name }, { init })
+end
+
+function match:ClassBody(node)
+   local body = { }
+   local properties = { }
    for i=1, #node.body do
       if node.body[i].type == "PropertyDefinition" then
          local prop = node.body[i]
@@ -897,23 +851,7 @@ function match:ClassDeclaration(node)
          body[#body + 1] = self:get(node.body[i])
       end
    end
-
-   self.ctx:unhoist(body)
-   self.ctx:leave()
-
-   local init = B.callExpression(
-      B.identifier('class'), {
-         B.literal(node.id.name), base,
-         B.functionExpression(
-            { B.identifier('self'), B.identifier('super') },
-            B.blockStatement(body)
-         )
-      }
-   )
-
-   return B.assignmentExpression(
-      { name }, { init }
-   )
+   return body
 end
 
 function match:SpreadExpression(node)
@@ -1157,7 +1095,7 @@ function match:GrammarDeclaration(node)
       { self:get(node.id) }, {
          B.callExpression(
             B.identifier('grammar'),
-            { B.literal(node.name.name), self:get(node.body) }
+            { B.literal(node.id.name), self:get(node.body) }
          )
       }
    )
@@ -1177,15 +1115,29 @@ function match:PatternGrammar(node)
    )
 end
 function match:PatternAlternate(node)
+   local left, right
+   if node.left then
+      left  = self:get(node.left)
+      right = self:get(node.right)
+   else
+      left = self:get(node.right)
+   end
    return B.callExpression(
       B.memberExpression(B.identifier('__rule__'), B.identifier('__add')),
-      { self:get(node.left), self:get(node.right) }
+      { left, right }
    )
 end
 function match:PatternSequence(node)
+   local left, right
+   if node.left then
+      left  = self:get(node.left)
+      right = self:get(node.right)
+   else
+      left = self:get(node.right)
+   end
    return B.callExpression(
       B.memberExpression(B.identifier('__rule__'), B.identifier('__mul')),
-      { self:get(node.left), self:get(node.right) }
+      { left, right }
    )
 end
 function match:PatternAny(node)
@@ -1307,10 +1259,10 @@ function match:PatternPredef(node)
    )
 end
 function match:PatternArgument(node)
-   local narg = string.match(node.name, '^(%d+)$')
+   local narg = string.match(node.index, '^(%d+)$')
    return B.callExpression(
       B.memberExpression(B.identifier('__rule__'), B.identifier('Carg')),
-      { tonumber(narg) }
+      { B.literal(tonumber(narg)) }
    )
 end
 

@@ -702,8 +702,9 @@ end
 Grammar.__tostring = function(self)
    return string.format('Grammar<%s>', tostring(self.__name))
 end
-Grammar.__index.__match = function(self, ...)
-   return self.__patt:match(...)
+Grammar.__index.__match = function(self, subj, ...)
+   if type(subj) ~= 'string' then return false end
+   return self.__patt:match(subj, ...)
 end
 
 local function grammar(name, patt)

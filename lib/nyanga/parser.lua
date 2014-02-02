@@ -236,12 +236,12 @@ local patt = [=[
       <expr> (s "," s <expr>)*
    )
 
-   func_path <- {|
-      <ident> (s {"."/"::"} s <ident>)*
-   |}
+   func_path <- (
+      (<ident> (s {"."} s <func_path> / s {"::"} s <ident>)) / <ident>
+   )
 
    func_decl <- (
-      "function" <idsafe> s <func_path> s <func_head> s <func_body>
+      "function" <idsafe> s {| <func_path> |} s <func_head> s <func_body>
    ) -> funcDecl
 
    func_head <- (
@@ -261,7 +261,7 @@ local patt = [=[
    ) -> coroExpr
 
    coro_decl <- (
-      "function*" s <func_path> s <func_head> s <func_body>
+      "function*" s {| <func_path> |} s <func_head> s <func_body>
    ) -> coroDecl
 
    coro_prop <- (
@@ -275,21 +275,9 @@ local patt = [=[
 
    module_decl <- (
       "module" <idsafe> s <ident> s
-      <module_body> s
+      <class_body> s
       (<end> / %1 => error)
    ) -> moduleDecl
-
-   module_body <- {|
-      (<module_body_stmt> (<sep> s <module_body_stmt>)* <sep>?)?
-   |}
-
-   module_body_stmt <- ({} (
-      <module_member> / <include_stmt> / !<return_stmt> <stmt>
-   )) -> stmt
-
-   module_member <- (
-      <coro_prop> / <prop_defn>
-   ) -> moduleMember
 
    class_decl <- (
       "class" <idsafe> s <ident> (s <class_heritage>)? s
@@ -299,7 +287,7 @@ local patt = [=[
 
    class_body <- {|
       (<class_body_stmt> (<sep> s <class_body_stmt>)* <sep>?)?
-   |}
+   |} -> classBody
 
    class_body_stmt <- ({} (
       <class_member> / <include_stmt> / !<return_stmt> <stmt>
@@ -346,7 +334,7 @@ local patt = [=[
       "given" <idsafe> s <expr>
          {| <given_case>+ |}
          (s "else" <idsafe> s <block_stmt>)? s
-      (<end> / %1 -> error)
+      (<end> / %1 => error)
    ) -> givenStmt
 
    given_case <- (
@@ -436,7 +424,7 @@ local patt = [=[
       / s { "::" } s (<ident> / %1 => error)
       / hs { "[" } s <expr> s ("]" / %1 => error)
       / { "(" } s {| <expr_list>? |} s (")" / %1 => error)
-      / {~ HS -> "(" ~} {| !<binop> <expr_list> |}
+      / {~ (hs &['"[{] / HS) -> "(" ~} {| !<binop> <expr_list> |}
    |}
 
    member_expr <- {|
@@ -494,7 +482,7 @@ local patt = [=[
    ) -> compBlock
 
    regex_expr <- (
-      "/" s <patt_expr> s ("/" / %s -> error)
+      "/" s <patt_expr> s ("/" / %s => error)
    ) -> regexExpr
 
    grammar_decl <- (
@@ -514,8 +502,9 @@ local patt = [=[
       <patt_name> s '<-' s <patt_expr>
    )
 
+   patt_sep <- '|' !'}'
    patt_alt <- {|
-      ('|' s)? <patt_seq> (s '|' s <patt_seq>)*
+      <patt_seq> (s <patt_sep> s <patt_seq>)*
    |} -> pattAlt
 
    patt_seq <- {|
@@ -541,13 +530,13 @@ local patt = [=[
    )
 
    patt_prod <- (
-        {'~>'} s <expr>
-      / {'->'} s <expr>
-      / {'+>'} s <expr>
+        {'~>'} s <prefix_expr>
+      / {'->'} s <prefix_expr>
+      / {'+>'} s <prefix_expr>
    ) -> pattProd
 
    patt_opt <- (
-      { [+*?] }
+      !'+>' { [+*?] }
    ) -> pattOpt
 
    patt_rep <- (
@@ -557,9 +546,9 @@ local patt = [=[
    patt_capt <- (
         <patt_capt_subst>
       / <patt_capt_const>
-      / <patt_capt_basic>
       / <patt_capt_group>
       / <patt_capt_table>
+      / <patt_capt_basic>
       / <patt_capt_back>
    )
 
@@ -572,11 +561,11 @@ local patt = [=[
    ) -> pattCaptGroup
 
    patt_capt_table <- (
-      '{|'  s <patt_expr> s '|}'
+      '{|' s <patt_expr> s '|}'
    ) -> pattCaptTable
 
    patt_capt_basic <- (
-      '{'  s <patt_expr> s '}'
+      '{' s <patt_expr> s '}'
    ) -> pattCaptBasic
 
    patt_capt_const <- (
@@ -601,11 +590,12 @@ local patt = [=[
 
    patt_ref <- (
       '<' <patt_name> '>'
+      / !<keyword> <patt_name> !(s '<-')
    ) -> pattRef
 
    patt_arg <- (
-      '%' { <patt_num> } -> pattArg
-   ) -> pattRef
+      '%' { <patt_num> }
+   ) -> pattArg
 
    patt_class <- (
       '[' {'^' / ''} {| <patt_item> (!']' <patt_item>)* |} ']'

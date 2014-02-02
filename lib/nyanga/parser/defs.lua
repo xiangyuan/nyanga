@@ -63,10 +63,6 @@ end
 function defs.moduleDecl(name, body)
    return { type = "ModuleDeclaration", id = name, body = body }
 end
-function defs.moduleMember(m)
-   table.insert(m.value.params, 1, defs.identifier("self"))
-   return m
-end
 
 function defs.exportStmt(names)
    return { type = "ExportStatement", names = names }
@@ -197,12 +193,32 @@ end
 function defs.spreadExpr(arg)
    return { type = "SpreadExpression", argument = arg }
 end
-function defs.funcDecl(name, head, body)
+function defs.funcDecl(path, head, body)
    if body.type ~= "BlockStatement" then
       body = defs.blockStmt{ defs.returnStmt{ body } }
    end
-   local decl = { type = "FunctionDeclaration", id = name, body = body }
+
+   local name, oper
+   if path then
+      if #path == 1 then
+         name = path[1]
+      else
+         name = util.fold_left(path, function(a, b)
+            if type(b) == 'string' then
+               oper = b
+               return a
+            else
+               return defs.memberExpr(a, b)
+            end
+         end)
+      end
+   end
+
+   local decl = { type = "FunctionDeclaration", name = name, body = body }
    local defaults, params, rest = { }, { }, nil
+   if oper == '.' then
+      params[#params + 1] = defs.identifier('self')
+   end
    for i=1, #head do
       local p = head[i]
       if p.rest then
@@ -214,9 +230,11 @@ function defs.funcDecl(name, head, body)
          end
       end 
    end
+
    decl.params   = params
    decl.defaults = defaults
    decl.rest     = rest
+
    return decl
 end
 function defs.funcExpr(head, body)
@@ -299,6 +317,9 @@ function defs.classDecl(name, base, body)
       base = nil
    end
    return { type = "ClassDeclaration", id = name, base = base, body = body }
+end
+function defs.classBody(body)
+   return { type = "ClassBody", body = body }
 end
 function defs.classMember(s, m)
    m.static = s == "static"
@@ -530,7 +551,7 @@ function defs.pattCaptSubst(expr)
    return { type = "PatternCaptSubst", pattern = expr }
 end
 function defs.pattCaptTable(expr)
-   return { type = "PatternCaptTable", pattern = expr }
+   return { type = "PatternCaptTable", pattern = expr or defs.literal("") }
 end
 function defs.pattCaptBasic(expr)
    return { type = "PatternCaptBasic", pattern = expr }
