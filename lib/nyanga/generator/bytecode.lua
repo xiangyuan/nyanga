@@ -397,10 +397,10 @@ function match:LogicalExpression(node, dest, want)
    self.ctx.freereg = free
    return dest
 end
-function match:MemberExpression(node, base, want)
+function match:MemberExpression(node, dest, want)
    local free = self.ctx.freereg
-   base = base or self.ctx:nextreg()
-   local base = self:emit(node.object, base, 1)
+   dest = dest or self.ctx:nextreg()
+   local base = self:emit(node.object, nil, 1)
    local expr = self.ctx:nextreg()
    if node.computed then
       expr = self:emit(node.property, expr, 1)
@@ -409,9 +409,9 @@ function match:MemberExpression(node, base, want)
    else
       expr = self:emit(node.property, expr, 1)
    end
-   self.ctx:op_tget(base, base, expr)
+   self.ctx:op_tget(dest, base, expr)
    self.ctx.freereg = free
-   return base
+   return dest
 end
 function match:FunctionDeclaration(node)
    local free = self.ctx.freereg

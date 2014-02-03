@@ -744,18 +744,35 @@ function Proto.__index:op_tnew(dest, narry, nhash)
    else
       nhash = 0
    end
-   return self:emit(BC.TNEW, dest, bit.bor(narry, bit.lshift(nhash, 11)))
+   --return self:emit(BC.TNEW, dest, bit.bor(narry, bit.lshift(nhash, 11)))
+   return self:emit(BC.TNEW, dest, bit.bor(narry, bit.lshift(0, 11)))
 end
 function Proto.__index:op_tget(dest, tab, key)
    if type(key) == 'string' then
-      return self:emit(BC.TGETS, dest, tab, self:const(key))
+      local idx = self:const(key)
+      if idx < 0xff then
+         return self:emit(BC.TGETS, dest, tab, idx)
+      else
+         idx = self:nextreg()
+         self:op_load(idx, key)
+         self.freereg = idx
+         return self:emit(BC.TGETV, dest, tab, idx)
+      end
    else
       return self:emit(BC.TGETV, dest, tab, key)
    end
 end
 function Proto.__index:op_tset(tab, key, val)
    if type(key) == 'string' then
-      return self:emit(BC.TSETS, val, tab, self:const(key))
+      local idx = self:const(key)
+      if idx < 0xff then
+         return self:emit(BC.TSETS, val, tab, idx)
+      else
+         idx = self:nextreg()
+         self:op_load(idx, key)
+         self.freereg = idx
+         return self:emit(BC.TSETV, val, tab, idx)
+      end
    else
       return self:emit(BC.TSETV, val, tab, key)
    end
