@@ -400,8 +400,8 @@ end
 function match:MemberExpression(node, dest, want)
    local free = self.ctx.freereg
    dest = dest or self.ctx:nextreg()
-   local base = self:emit(node.object, nil, 1)
    local expr = self.ctx:nextreg()
+   local base = self:emit(node.object, nil, 1)
    if node.computed then
       expr = self:emit(node.property, expr, 1)
    elseif node.property.kind == 'Identifier' then
