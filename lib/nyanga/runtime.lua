@@ -212,6 +212,15 @@ Array.__pairs = function(self)
       end
    end, self, -1
 end
+Array.__ipairs = function(self)
+   return function(self, ctrl)
+      local i = ctrl + 1
+      if i < self.length then
+         return i, self[i]
+      end
+   end, self, -1
+end
+
 
 function Array.__members__:join(sep)
    return table.concat({ Array.__spread(self) }, sep)
@@ -513,7 +522,6 @@ local ArrayPattern, TablePattern, ApplyPattern
 local __var__ = newproxy()
 
 local function __match__(that, this)
-   print("match:", that, this)
    local type_this = type(this)
    local type_that = type(that)
 
@@ -675,16 +683,23 @@ local ApplyPattern = class("ApplyPattern", nil, function(self)
    self.__members__.bind = function(self, subj)
       if subj == nil then return end
       local i = 1
-      local subj = self.base.__unapply(subj)
+      local si, ss, sc
+      if self.base.__ipairs then
+         si, ss, sc = self.base.__ipairs(subj)
+      else
+         si, ss, sc = ipairs(subj)
+      end
       return function(self)
          while i <= self.narg do
             local k = i
             local v = self[i]
             i = i + 1
+            local _k, _v = si(ss, sc)
+            sc = _k
             if v == __var__ then
-               return k, subj[k]
+               return k, _v
             elseif type(v) == 'table' then
-               return k, { v:bind(subj[k]) }
+               return k, { v:bind(_v) }
             end
          end
       end, self, nil
