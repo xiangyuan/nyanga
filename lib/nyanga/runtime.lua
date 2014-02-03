@@ -370,59 +370,6 @@ local String = class("String", nil, function(self, super)
 end)
 debug.setmetatable("", String)
 
-local RegExp = class("RegExp", nil, function(self, super)
-   local pcre = require('pcre')
-
-   self.__members__.self = function(self, source, flags)
-      flags = flags or ''
-      self.index = 0
-      self.input = ''
-      self.source  = source
-      local opts = 0
-      if string.find(flags, 'i') then
-         opts = opts + pcre.lib.PCRE_CASELESS
-         self.ignoreCase = true
-      end
-      if string.find(flags, 'm') then
-         opts = opts + pcre.lib.PCRE_MULTILINE
-         self.multiLine = true
-      end
-      self.pattern = assert(pcre.compile(source, opts))
-      if string.find(flags, 'g') then
-         self.global = true
-      end
-   end
-
-   self.__members__.exec = function(self, str)
-      if self.input ~= str then
-         self.input = str
-         self.index = 0
-      end
-      local result = pcre.execute(self.pattern, self.input, self.index)
-      if type(result) == 'table' then
-         self.index = self.index + #result[1] + 1
-         return result
-      elseif result == pcre.lib.PCRE_ERROR_NOMATCH then
-         return nil
-      else
-         error(result, 2)
-      end
-   end
-
-   self.__members__.test = function(self, str)
-      local result = pcre.execute(self.pattern, str)
-      if type(result) == 'table' then
-         return true
-      else
-         return false
-      end
-   end
-
-   self.__members__.toString = function(self)
-      return string.format('RegExp(%q)', tostring(self.source))
-   end
-end)
-
 local Error = class("Error", nil, function(self, super)
    self.__members__.self = function(self, mesg)
       self.message = mesg
@@ -544,10 +491,10 @@ end
 
 local function expand(iter, stat, ctrl, ...)
    if iter == nil then return ... end
-   local k, v = iter(stat, ctrl)
+   local k, v, _1, _2, _3 = iter(stat, ctrl)
    if k == nil then return ... end
-   if type(v) == 'table' then
-      return expand(v[1], v[2], v[3], expand(iter, stat, k, ...))
+   if v == __var__ then
+      return expand(_1, _2, _2, expand(iter, stat, k, ...))
    end
    return v, expand(iter, stat, k, ...)
 end
@@ -610,7 +557,7 @@ local TablePattern = class("TablePattern", nil, function(self)
                   return k, subj[k]
                end
             elseif type(v) == 'table' then
-               return k, { v:bind(subj[k]) }
+               return k, __var__, v:bind(subj[k])
             end
          end
       end, stat, ctrl
@@ -655,7 +602,7 @@ local ArrayPattern = class("ArrayPattern", nil, function(self)
             if v == __var__ then
                return i, subj[i]
             elseif type(v) == 'table' then
-               return i, { v:bind(subj[i]) }
+               return i, __var__, v:bind(subj[i])
             end
          end
       end, stat, ctrl
@@ -699,7 +646,7 @@ local ApplyPattern = class("ApplyPattern", nil, function(self)
             if v == __var__ then
                return k, _v
             elseif type(v) == 'table' then
-               return k, { v:bind(_v) }
+               return k, __var__, v:bind(_v)
             end
          end
       end, self, nil
