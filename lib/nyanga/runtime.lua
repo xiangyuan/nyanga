@@ -500,11 +500,11 @@ end
 
 local system
 local function yield(...)
-   local curr, main = coroutine.running()
-   if main or not curr then
-      system.schedule(...)
+   local coro, main = coroutine.running()
+   if main then
+      return system.schedule(...)
    else
-      coroutine.yield(...)
+      return coroutine.yield(...)
    end
 end
 
@@ -513,6 +513,7 @@ local ArrayPattern, TablePattern, ApplyPattern
 local __var__ = newproxy()
 
 local function __match__(that, this)
+   print("match:", that, this)
    local type_this = type(this)
    local type_that = type(that)
 
@@ -579,7 +580,7 @@ local TablePattern = class("TablePattern", nil, function(self)
                return false
             end
          else
-            if not __match__(that[k], v) then
+            if not __match__(v, that[k]) then
                return false
             end
          end
@@ -630,7 +631,7 @@ local ArrayPattern = class("ArrayPattern", nil, function(self)
       end
       for k, v in ipairs(self) do
          if v ~= __var__ then
-            if not __match__(that[i], v) then
+            if not __match__(v, that[i]) then
                return false
             end
          end
@@ -862,5 +863,7 @@ export.run = run
 export.runopt = runopt
 export.predef = predef
 
+system = require('system.nga')
+package.loaded['@system'] = system
 return export
 
