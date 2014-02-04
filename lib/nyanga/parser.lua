@@ -250,7 +250,7 @@ local patt = [=[
 
    func_expr <- (
       "function" <idsafe> s <func_head> s <func_body>
-      / (<func_head> / {| |}) s "=>" s (<block_stmt> s <end> / <expr> / %1 => error)
+      / (<func_head> / {| |}) s "=>" (HS <expr> / s <block_stmt> s <end> / %1 => error)
    ) -> funcExpr
 
    func_body <- <block_stmt> s (<end> / %1 => error)
@@ -414,6 +414,7 @@ local patt = [=[
    prefix_expr <- (
       { "#" / "-" / ("typeof" / "yield") <idsafe> } s <postfix_expr>
       / { "~" / "!" / "not" <idsafe> } s <prefix_expr>
+      / { "yield" <idsafe> !(s <postfix_expr>) }
    ) -> prefixExpr / <postfix_expr>
 
    postfix_expr <- {|

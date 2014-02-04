@@ -647,11 +647,17 @@ function match:BinaryExpression(node)
 end
 function match:UnaryExpression(node)
    local o = node.operator
+   if o == 'yield' then
+      local a
+      if node.argument then
+         -- optional in yield expression - smells like a hack tbh
+         a = self:get(node.argument)
+      end
+      return B.callExpression(B.identifier('yield'), { a })
+   end
    local a = self:get(node.argument)
    if o == 'typeof' then
       return B.callExpression(B.identifier('__typeof__'), { a })
-   elseif o == 'yield' then
-      return B.callExpression(B.identifier('yield'), { a })
    elseif o == '~' then
       local call = B.memberExpression(B.identifier('bit'), B.identifier('bnot'))
       return B.callExpression(call, { a })
