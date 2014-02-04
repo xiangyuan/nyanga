@@ -795,7 +795,6 @@ local predef = {
    try    = try;
    Array  = Array;
    Error  = Error;
-   RegExp = RegExp;
    Module = Module;
    Class  = Class;
    class  = class;

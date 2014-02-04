@@ -104,13 +104,13 @@ end
 
 local match = { }
 
-local globals = { }
+local globals = { 'Array', 'Error', 'Class', 'Module' }
 for k,v in pairs(_G) do
    globals[#globals + 1] = k
 end
 
 local predef = {
-   'try', 'Array', 'Error', 'RegExp', 'Module', 'Class', 'class',
+   'try', 'Array', 'Error', 'Module', 'Class', 'class',
    'module', 'import', 'yield', 'throw', 'grammar', '__rule__',
    'include', '__range__', '__spread__', '__typeof__', '__match__',
    '__extract__', '__each__', '__var__', '__in__', '__is__', '__as__',
@@ -549,6 +549,7 @@ function match:TryStatement(node)
    local clauses = { }
    for i=#node.guardedHandlers, 1, -1 do
       local clause = node.guardedHandlers[i]
+      self.ctx:define(clause.param.name)
       local cons = self:get(clause.body)
       local head = B.localDeclaration(
          { self:get(clause.param) }, { B.vararg() }
@@ -559,6 +560,7 @@ function match:TryStatement(node)
    end
    if node.handler then
       local clause = node.handler
+      self.ctx:define(clause.param.name)
       local cons = self:get(clause.body)
       local head = B.localDeclaration(
          { self:get(clause.param) }, { B.vararg() }
