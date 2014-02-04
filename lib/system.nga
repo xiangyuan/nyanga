@@ -20,18 +20,19 @@ module Scheduler
    poll_dur = -1
 
    fiber(fiber)
-      item = { fiber = fiber }
       if not fibers then
-         fibers = item
+         fibers = fiber
+      elseif fibers == fiber then
+         return
       else
          tail = fibers
          while tail.next do
-            if tail.fiber == fiber then
-               return
+            if tail == fiber then
+               return -- aleady the queue
             end
             tail = tail.next
          end
-         tail.next = item
+         tail.next = fiber
       end
    end
 
@@ -85,12 +86,14 @@ module Scheduler
       while _running do
          -- schedule coroutines
          while fibers do
-            item = fibers
-            fibers = item.next
-            item.fiber.resume()
-            status = item.fiber.status()
-            if status == "dead" then
-               item.fiber.finish()
+            fiber = fibers
+            fibers = fiber.next
+            fiber.next = nil
+            status = fiber.status()
+            if status == "suspended" then
+               fiber.resume()
+            elseif status == "dead" then
+               fiber.finish()
             end
          end
 
@@ -233,8 +236,8 @@ class Fiber
       return coroutine::running()
    end
 
-   resume(...args)
-      return assert(coroutine::resume(self, ...args))
+   resume(...)
+      return assert(coroutine::resume(self, ...))
    end
 
    ready()
@@ -242,11 +245,15 @@ class Fiber
    end
 
    join()
-      curr = coroutine::running()
-      self.on_complete =>
-         curr.ready()
+      curr, main = coroutine::running()
+      if not main then
+         self.on_complete =>
+            curr.ready()
+         end
+         yield
+      else
+         Scheduler.run()
       end
-      yield
    end
 
    finish()
