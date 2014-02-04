@@ -308,6 +308,7 @@ function Proto.new(flags, outer)
       labels = { };
       tohere = { };
       kcache = { };
+      lastjmp = 0;
       freereg = 0;
       varinfo = { };
       currline  = 1;
@@ -353,17 +354,25 @@ end
 function Proto.__index:close()
    self.numlines = self.lastline - self.firstline
    if #self.code > 0 then
-      local last = self.code[#self.code][1]
       for i=1, #self.scope.actvars do
          self.scope.actvars[i].endpc = #self.code
       end
       self.freereg = 0
-      if last ~= BC.CALLT and last ~= BC.CALLMT
-      and not (last >= BC.RETM and last <= BC.RET1) then
+      if self.lastjmp > #self.code then
          if self.scope.upval then
             self:emit(BC.UCLO, 0, 0)
+            self.scope.upval = nil
          end
          self:op_ret0()
+      else
+         local last = self.code[#self.code][1]
+         if last ~= BC.CALLT and last ~= BC.CALLMT
+         and not (last >= BC.RETM and last <= BC.RET1) then
+            if self.scope.upval then
+               self:emit(BC.UCLO, 0, 0)
+            end
+            self:op_ret0()
+         end
       end
    else
       self:op_ret0()
@@ -585,7 +594,11 @@ function Proto.__index:here(name)
       local back = self.tohere[name]
       for i=1, #back do
          local offs = back[i]
-         self.code[offs][3] = #self.code - offs
+         local dest = #self.code - offs
+         self.code[offs][3] = dest
+         if self.lastjmp < dest + offs + 1 then
+            self.lastjmp = dest + offs + 1
+         end
       end
       self.tohere[name] = nil
    else

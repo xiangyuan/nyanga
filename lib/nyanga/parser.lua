@@ -412,7 +412,7 @@ local patt = [=[
    ) -> infixExpr / <prefix_expr>
 
    prefix_expr <- (
-      { "#" / "-" / "typeof" <idsafe> } s <postfix_expr>
+      { "#" / "-" / ("typeof" / "yield") <idsafe> } s <postfix_expr>
       / { "~" / "!" / "not" <idsafe> } s <prefix_expr>
    ) -> prefixExpr / <postfix_expr>
 

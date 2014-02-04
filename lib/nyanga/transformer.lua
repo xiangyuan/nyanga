@@ -650,6 +650,8 @@ function match:UnaryExpression(node)
    local a = self:get(node.argument)
    if o == 'typeof' then
       return B.callExpression(B.identifier('__typeof__'), { a })
+   elseif o == 'yield' then
+      return B.callExpression(B.identifier('yield'), { a })
    elseif o == '~' then
       local call = B.memberExpression(B.identifier('bit'), B.identifier('bnot'))
       return B.callExpression(call, { a })

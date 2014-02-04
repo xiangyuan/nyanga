@@ -116,10 +116,10 @@ function match:SendExpression(node, base, want, tail)
 end
 
 function match:LabelStatement(node)
-   return self.ctx:here(node.label)
+   return self.ctx:here(node.label.name)
 end
 function match:GotoStatement(node)
-   return self.ctx:jump(node.label)
+   return self.ctx:jump(node.label.name)
 end
 
 function match:Literal(node, dest)
@@ -228,6 +228,7 @@ function match:IfStatement(node, nest, exit)
    if node.alternate then
       self.ctx:jump(exit)
    end
+
    self.ctx:here(altl)
 
    if node.alternate then
@@ -625,7 +626,7 @@ function match:ReturnStatement(node)
       end
    end
    if bit.band(self.ctx.flags, bc.Proto.CHILD) > 0 then 
-      self.ctx:op_uclo()
+      self.ctx:op_uclo(0)
    end
    if not self.ctx:is_tcall() then
       if narg == 0 then
