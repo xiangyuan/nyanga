@@ -1,0 +1,29 @@
+import TCPServer, async from "@system"
+
+ffi = require "ffi"
+
+server = TCPServer()
+server.reuseaddr(true)
+print "bind", server.bind("localhost", 1976)
+print "listen", server.listen(128)
+server.nonblocking = true
+
+async =>
+   while true do
+      client = server.accept()
+      async =>
+         while true do
+            buf = ffi::new('char[256]')
+            got = client.read(buf, 256)
+            if got < 0 then
+               client.close()
+               break
+            end
+            print got, ffi::string(buf)
+            client.write("you said ${ffi::string(buf)}")
+         end
+      end
+   end
+end
+
+yield
