@@ -124,7 +124,7 @@ local patt = [=[
    ) -> continueStmt
 
    yield_stmt <- (
-      "yield" <idsafe> {| (HS  <expr_list>)? |}
+      "yield" <idsafe> {| (HS <expr_list>)? |}
    ) -> yieldStmt
 
    return_stmt <- (
@@ -412,7 +412,8 @@ local patt = [=[
    ) -> infixExpr / <prefix_expr>
 
    prefix_expr <- (
-      { "#" / "~" / "+" / "-" / "!" / ("not" / "typeof") <idsafe> } s <prefix_expr>
+      { "#" / "-" / "typeof" <idsafe> } s <postfix_expr>
+      / { "~" / "!" / "not" <idsafe> } s <prefix_expr>
    ) -> prefixExpr / <postfix_expr>
 
    postfix_expr <- {|
@@ -530,9 +531,9 @@ local patt = [=[
    )
 
    patt_prod <- (
-        {'~>'} s <prefix_expr>
-      / {'->'} s <prefix_expr>
-      / {'+>'} s <prefix_expr>
+        {'~>'} s <postfix_expr>
+      / {'->'} s <postfix_expr>
+      / {'+>'} s <postfix_expr>
    ) -> pattProd
 
    patt_opt <- (
