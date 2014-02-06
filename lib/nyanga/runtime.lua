@@ -7,9 +7,12 @@ local ffi      = require('ffi')
 local lpeg     = require('lpeg')
 local compiler = require('nyanga.compiler')
 
+local Class
 local Range
 local export = { }
 package.loaded['nyanga.runtime'] = export
+
+local getmetatable, setmetatable = _G.getmetatable, _G.setmetatable
 
 local function loader(filename)
    if string.match(filename, "%.nga") then
@@ -32,8 +35,11 @@ end
 table.insert(package.loaders, loader)
 
 local function __is__(a, b)
+   if type(b) == 'table' and b.__istype then
+      return b:__istype(a)
+   end
    if type(a) == 'cdata' then
-      return ffi.istype(a, b)
+      return ffi.istype(b, a)
    else
       local m = getmetatable(a)
       while m do
@@ -71,9 +77,18 @@ function Module.__tostring(self)
       return string.format('<%s>:%p', self.__name, self)
    end
 end
+function Module.__call(self, ...)
+   local module = { __name = self.__name, __body = self.__body }
+   module.__getters__ = { }
+   module.__setters__ = { }
+   module.__members__ = { }
+
+   self.__body(setmetatable(module, Module), ...)
+   return module
+end
 
 local function module(name, body)
-   local module = { __name = name }
+   local module = { __name = name, __body = body }
    module.__getters__ = { }
    module.__setters__ = { }
    module.__members__ = { }
@@ -82,7 +97,7 @@ local function module(name, body)
    return module
 end
 
-local Class = { }
+Class = { }
 function Class.__call(class, ...)
    local obj
    if class.__apply then
@@ -166,6 +181,12 @@ local function class(name, base, body)
          class[delg.mmname] = delg.method
       end
    end
+   if class.__finalize then
+      local retv = class:__finalize()
+      if retv ~= nil then
+         return retv
+      end
+   end
    return class
 end
 
@@ -181,6 +202,9 @@ local function include(into, ...)
       end
       for k,v in pairs(from.__members__) do
          into.__members__[k] = v
+      end
+      if from.__included then
+         from:__included(into)
       end
    end
 end

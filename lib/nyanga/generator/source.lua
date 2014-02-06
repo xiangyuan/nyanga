@@ -62,11 +62,9 @@ function match:BinaryExpression(node)
 end
 function match:UnaryExpression(node)
    self:write(node.operator)
-   if node.operator == 'not' then
-      self:write(" ")
-   end
+   self:write("(")
    self:render(node.argument)
-   self:write(" ")
+   self:write(") ")
 end
 function match:ListExpression(node)
    for i=1, #node.expressions do

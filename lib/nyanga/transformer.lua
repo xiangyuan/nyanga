@@ -14,6 +14,7 @@ function Scope.new(outer)
       outer   = outer;
       entries = { };
       hoist   = { };
+      level   = outer and outer.level + 1 or 1;
    }
    return setmetatable(self, Scope)
 end
@@ -39,11 +40,12 @@ function Context.new(src, name)
       pos   = 0;
       src   = src;
       name  = name;
+      undef = { };
    }
    return setmetatable(self, Context)
 end
-function Context:abort(mesg)
-   mesg = string.format("nyanga: %s:%s: %s\n", self.name, self.line, mesg)
+function Context:abort(mesg, line)
+   mesg = string.format("nyanga: %s:%s: %s\n", self.name, line or self.line, mesg)
    if DEBUG then
       error(mesg)
    else
@@ -51,8 +53,15 @@ function Context:abort(mesg)
       os.exit(1)
    end
 end
-function Context:enter()
+function Context:enter(is_func)
+   local topline
+   if is_func then
+      topline = self.line
+   else
+      topline = self.scope.topline
+   end
    self.scope = Scope.new(self.scope)
+   self.scope.topline = topline
 end
 function Context:leave(block)
    block = block or self.scope.hoist
@@ -70,13 +79,31 @@ function Context:unhoist(block)
    self.scope.hoist = { }
 end
 function Context:define(name, info)
-   info = info or { }
+   info = info or { line = self.line }
    self.scope:define(name, info)
+   for i=#self.undef, 1, -1 do
+      local u = self.undef[i]
+      if u.name == name and u.line < self.line then
+         if u.from.level <= self.scope.level then
+            self:abort(string.format("%q used before defined", u.name), u.line)
+         else
+            table.remove(self.undef, i)
+         end
+      end
+   end
    return info
 end
 function Context:lookup(name)
-   local info = self.scope:lookup(name)
-   return info
+   return self.scope:lookup(name)
+end
+function Context:resolve(name)
+   self.undef[#self.undef + 1] = { name = name, line = self.line, from = self.scope }
+end
+function Context:close()
+   for i=1, #self.undef do
+      local u = self.undef[i]
+      self:abort(string.format("%q used but not defined", u.name), u.line)
+   end
 end
 
 local function countln(src, pos, idx)
@@ -180,7 +207,7 @@ function match:Identifier(node)
    if node.check then
       local info = self.ctx:lookup(node.name)
       if info == nil then
-         self.ctx:abort(string.format("'%s' used but not defined", node.name))
+         self.ctx:resolve(node.name)
       end
    end
    return B.identifier(node.name)
@@ -677,7 +704,7 @@ function match:FunctionDeclaration(node)
    local prelude = { }
    local vararg  = false
 
-   self.ctx:enter()
+   self.ctx:enter(true)
 
    for i=1, #node.params do
       self.ctx:define(node.params[i].name)
@@ -739,7 +766,7 @@ function match:FunctionDeclaration(node)
 end
 
 function match:IncludeStatement(node)
-   local args = self:list(node.names)
+   local args = self:list(node.list)
    table.insert(args, 1, B.identifier("self"))
    return B.expressionStatement(B.callExpression(B.identifier("include"), args))
 end
@@ -749,7 +776,7 @@ function match:ModuleDeclaration(node)
    local name = self:get(node.id)
 
    self.ctx:hoist(B.localDeclaration({ name }, { }))
-   self.ctx:enter()
+   self.ctx:enter(true)
    self.ctx:define('self')
    local body = self:get(node.body)
    self.ctx:unhoist(body)
@@ -759,7 +786,7 @@ function match:ModuleDeclaration(node)
       B.identifier('module'), {
          B.literal(node.id.name),
          B.functionExpression(
-            { B.identifier('self') },
+            { B.identifier('self'), B.vararg() },
             B.blockStatement(body)
          )
       }
@@ -768,13 +795,13 @@ function match:ModuleDeclaration(node)
 end
 
 function match:ClassDeclaration(node)
-   self.ctx:define(node.id.name)
+   self.ctx:define(node.id.name, { line = self.ctx.scope.topline })
 
    local name = self:get(node.id)
    local base = node.base and self:get(node.base) or B.literal(nil)
 
    self.ctx:hoist(B.localDeclaration({ name }, { }))
-   self.ctx:enter()
+   self.ctx:enter(true)
 
    self.ctx:define('self')
    self.ctx:define('super')
@@ -1299,7 +1326,9 @@ local function transform(tree, src, name)
       return list
    end
 
-   return self:get(tree)
+   local tout = self:get(tree)
+   self.ctx:close()
+   return tout
 end
 
 return {

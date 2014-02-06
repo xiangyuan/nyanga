@@ -61,13 +61,13 @@ local patt = [=[
 
    decimal <- "-"? <digits> ("." <digits> <decexp>? / <decexp>)
 
-   integer <- "-"? <digits>
+   integer <- { "-"? <digits> ('LL'/'UL')? } -> integer
 
    octal   <- {~ { "-"? "0" [0-7]+ } -> octal ~}
 
    number  <- {~
-      <hexnum> / <octal> / <decimal> / <integer>
-   ~} -> tonumber
+      <hexnum> / <octal> / <decimal>
+   ~} -> tonumber / <integer>
 
    boolean <- (
       {"true"/"false"} <idsafe>
@@ -257,7 +257,7 @@ local patt = [=[
 
    coro_expr <- (
       "function*" s <func_head> s <func_body>
-      / "*" <func_head> s "=>" s (<block_stmt> s <end> / <expr> / %1 => error)
+      / "*" <func_head> s "=>" s (hs <expr> / <block_stmt> s <end> / %1 => error)
    ) -> coroExpr
 
    coro_decl <- (
@@ -265,12 +265,12 @@ local patt = [=[
    ) -> coroDecl
 
    coro_prop <- (
-      ({"get"/"set"} <idsafe> s / '' -> "init") "*" <ident> s
+      ({"get"/"set"} <idsafe> HS &<ident> / '' -> "init") "*" <ident> s
       <func_head> s <func_body>
    ) -> coroProp
 
    include_stmt <- (
-      "include" <idsafe> s {| <name_list> |}
+      "include" <idsafe> s {| <expr_list> |}
    ) -> includeStmt
 
    module_decl <- (
@@ -302,7 +302,7 @@ local patt = [=[
    )
 
    prop_defn <- (
-      ({"get"/"set"} <idsafe> s / '' -> "init") <ident> s
+      ({"get"/"set"} <idsafe> HS &<ident> / '' -> "init") <ident> s
       <func_head> s <func_body>
    ) -> propDefn
 

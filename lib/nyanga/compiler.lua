@@ -26,7 +26,7 @@ local function compile(src, name, opts)
       luacode = generator.source(dsttree, name)
       print(luacode)
    else
-      luacode = generator.bytecode(dsttree, name)
+      luacode = generator.bytecode(dsttree, '@'..name)
    end
 
    if opts and opts['-o'] then

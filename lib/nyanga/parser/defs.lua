@@ -3,12 +3,32 @@ Copyright (C) 2013-2014 Richard Hundt and contributors.
 See Copyright Notice in nyanga
 ]=]
 
+local ffi  = require('ffi')
 local defs = { }
 local util = require('nyanga.util')
 
-defs.tonumber = function(s)
+local int64_t  = ffi.typeof('int64_t')
+local uint64_t = ffi.typeof('uint64_t')
+defs.integer = function(s)
    local n = string.gsub(s, '_', '')
-   return tonumber(n)
+   local suffix = string.sub(n, -2)
+   if suffix == 'LL' then
+      return int64_t(tonumber(string.sub(n, 1, -3)))
+   elseif suffix == 'UL' then
+      return uint64_t(tonumber(string.sub(n, 1, -3)))
+   else
+      return tonumber(n)
+   end
+end
+defs.tonumber = function(s)
+   if type(s) == 'cdata' then
+      return s
+   elseif type(s) == 'string' then
+      local n = string.gsub(s, '_', '')
+      return tonumber(n)
+   else
+      error('bad number format')
+   end
 end
 defs.tostring = tostring
 
@@ -57,8 +77,8 @@ function defs.expr(pos, node)
    return node
 end
 
-function defs.includeStmt(names)
-   return { type = "IncludeStatement", names = names }
+function defs.includeStmt(list)
+   return { type = "IncludeStatement", list = list }
 end
 function defs.moduleDecl(name, body)
    return { type = "ModuleDeclaration", id = name, body = body }
