@@ -192,16 +192,23 @@ Buf.__index.pack = function(self)
    return ffi.string(self.data, self.offs)
 end
 
-local double_1 = ffi.typeof('double[1]')
-local uint32_1 = ffi.typeof('uint32_t[1]')
-Buf.__index.put_number = function(self, v)
-   local offs = self.offs
-   local numv = double_1(v)
-   local char = ffi.cast('uint8_t*', numv)
+local double_new = ffi.typeof('double[1]')
+local uint32_new = ffi.typeof('uint32_t[1]')
+local int64_new  = ffi.typeof('int64_t[1]')
+local uint64_new = ffi.typeof('uint64_t[1]')
 
-   local u32_lo, u32_hi = uint32_1(0), uint32_1(0)
+local function dword_get_u32(cdata_new, v)
+   local p = cdata_new(v)
+   local char = ffi.cast('uint8_t*', p)
+   local u32_lo, u32_hi = uint32_new(0), uint32_new(0)
    ffi.copy(u32_lo, char, 4)
    ffi.copy(u32_hi, char + 4, 4)
+   return u32_lo, u32_hi
+end
+
+Buf.__index.put_number = function(self, v)
+   local offs = self.offs
+   local u32_lo, u32_hi = dword_get_u32(double_new, v)
 
    self:put_uleb128(1 + 2 * u32_lo[0]) -- 33 bits with lsb set
    if u32_lo[0] >= 0x80000000 then
@@ -253,6 +260,8 @@ function KObj.__index:write(buf)
    local t, v = type(self[1]), self[1]
    if t == "string" then
       self:write_string(buf, v)
+   elseif t == 'cdata' then
+      self:write_kcdata(buf, v)
    elseif t == 'table' then
       if typeof(v) == Proto then
          self:write_proto(buf, v)
@@ -272,6 +281,30 @@ function KObj.__index:write_table(buf, v)
       seen[i] = true
    end
 end
+function KObj.__index:write_kcdata(buf, v)
+   if ffi.istype('double complex', v) then
+      buf:put_uleb128(KOBJ.COMPLEX)
+      local u32_lo, u32_hi = dword_get_u32(double_new, v[0])
+      buf:put_uleb128(u32_lo[0])
+      buf:put_uleb128(u32_hi[0])
+      u32_lo, u32_hi = dword_get_u32(double_new, v[1])
+      buf:put_uleb128(u32_lo[0])
+      buf:put_uleb128(u32_hi[0])
+   elseif ffi.istype('uint64_t', v) then
+      buf:put_uleb128(KOBJ.U64)
+      local u32_lo, u32_hi = dword_get_u32(uint64_new, v)
+      buf:put_uleb128(u32_lo[0])
+      buf:put_uleb128(u32_hi[0])
+   elseif ffi.istype('int64_t', v) then
+      buf:put_uleb128(KOBJ.I64)
+      local u32_lo, u32_hi = dword_get_u32(int64_new, v)
+      buf:put_uleb128(u32_lo[0])
+      buf:put_uleb128(u32_hi[0])
+   else
+      error('Unknown KCDATA : ' .. tostring(v))
+   end
+end
+
 
 KNum = { }
 KNum.__index = { }
@@ -401,6 +434,11 @@ function Proto.__index:const(val)
          self.kcache[val] = item
          self.knum[#self.knum + 1] = item
       end
+   elseif type(val) == 'cdata' then
+      local item = KObj.new(val)
+      item.idx = #self.kobj
+      self.kobj[#self.kobj + 1] = item
+      return item.idx
    else
       error("not a const: "..tostring(val))
    end
@@ -738,6 +776,8 @@ function Proto.__index:op_load(dest, val)
       else
          return self:emit(BC.KNUM, dest, self:const(val))
       end
+   elseif tv == 'cdata' then
+      return self:emit(BC.KCDATA, dest, self:const(val))
    else
       error("cannot load as constant: "..tostring(val))
    end
