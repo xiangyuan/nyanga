@@ -14,14 +14,16 @@ local patt = [=[
       s (<main_stmt> (<sep> s <main_stmt>)* <sep>?)? s (!. / %1 => error)
    |} -> chunk
 
-   close    <- ']' =eq ']' / . <close>
+   close    <- ']' =eq ']' / <nl> / . <close>
 
-   lcomment <- "--" (!%nl .)* %nl
+   lcomment <- "--" (!<nl> .)* <nl>
    bcomment <- ('--[' {:eq: '='* :} '[' <close>)
    comment  <- <bcomment> / <lcomment>
    idsafe   <- !(%alnum / "_")
-   s        <- (<comment> / %s)*
-   S        <- (<comment> / %s)+
+   nl       <- %nl -> line
+   s        <- (<comment> / <nl> / !%nl %s)*
+   S        <- (<comment> / <nl> / !%nl %s)+
+   ws       <- <nl> / %s
    hs       <- (!%nl %s)*
    HS       <- (!%nl %s)+
    digits   <- %digit (%digit / (&('_' %digit) '_') %digit)*
@@ -37,15 +39,15 @@ local patt = [=[
       / "repeat" / "until" / "grammar" / "rule" / "given" / "case"
    ) <idsafe>
 
-   sep <- <bcomment>? (%nl / ";" / <lcomment>) / %s <sep>?
+   sep <- <bcomment>? (<nl> / ";" / <lcomment>) / <ws> <sep>?
 
    escape <- {~ ('\' (%digit^3 / .)) -> escape ~}
 
-   astring <- "'" {~ (<escape> / {!"'" .})* ~} "'"
+   astring <- "'" {~ (<escape> / <nl> / {!"'" .})* ~} "'"
 
    qstring <- {|
       '"' (
-         <raw_expr> / {~ (<escape> / !(<raw_expr> / '"') .)+ ~}
+         <raw_expr> / {~ (<escape> / <nl> / !(<raw_expr> / '"') .)+ ~}
       )* '"'
    |} -> rawString
 
@@ -124,15 +126,15 @@ local patt = [=[
    ) -> continueStmt
 
    yield_stmt <- (
-      "yield" <idsafe> {| (HS <expr_list>)? |}
+      "yield" <idsafe> {| (hs <expr_list>)? |}
    ) -> yieldStmt
 
    return_stmt <- (
-      "return" <idsafe> {| (HS <expr_list>)? |}
+      "return" <idsafe> {| (hs <expr_list>)? |}
    ) -> returnStmt
 
    throw_stmt <- (
-      "throw" <idsafe> s <expr>
+      "throw" <idsafe> hs <expr>
    ) -> throwStmt
 
    try_stmt <- (
@@ -177,7 +179,7 @@ local patt = [=[
    ) -> arrayPatt
 
    table_sep <- (
-      hs (","/";"/%nl)
+      hs (","/";"/<nl>)
    )
    table_patt <- (
       "{" s {|

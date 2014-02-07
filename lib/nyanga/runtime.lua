@@ -14,6 +14,60 @@ package.loaded['nyanga.runtime'] = export
 
 local getmetatable, setmetatable = _G.getmetatable, _G.setmetatable
 
+local sourcemap = { }
+local function traceback(mesg)
+   local frame
+   local level = 0
+   local frames = { }
+   local curname
+   while true do
+      level = level + 1
+      frame = debug.getinfo(level, "LnSl")
+      if frame == nil then
+         break
+      end
+      if string.sub(frame.source, 1, 9) == '=nyanga: ' then
+         frames[#frames + 1] = frame
+         local srcnam, srcmap = string.match(
+            frame.source, "^=nyanga: ([^:]-):(.-)$"
+         )
+         local lines = { }
+         for ln in string.gmatch(srcmap, '([^,]+)') do
+            lines[#lines + 1] = ln
+         end
+         frame.currentline = lines[frame.currentline]
+         frame.short_src   = srcnam
+      end
+   end
+   local first = frames[1]
+   local m
+   if type(mesg) == "string" then
+      m = string.match(mesg, "([^:]-)$")
+   else
+      m = tostring(mesg)
+   end
+   local buf = { }
+   buf[#buf + 1] = string.format(
+      "nyanga: %s:%s: %s", first.short_src, first.currentline, m or mesg
+   )
+   buf[#buf + 1] = "stack traceback:"
+   for i=1, #frames do
+      local f = frames[i]
+      local n
+      if f.name then
+         n = string.format("function '%s'", f.name)
+      elseif i == #frames then
+         n = 'main chunk'
+      else
+         n = '[?]'
+      end
+      buf[#buf + 1] = string.format(
+         "\t%s:%s: in %s", f.short_src, f.currentline, n
+      )
+   end
+   print(table.concat(buf, "\n"))
+end
+
 local function loader(filename)
    if string.match(filename, "%.nga") then
       local namelist = { }
@@ -24,8 +78,8 @@ local function loader(filename)
             if file then
                local src = file:read("*a")
                local pth = { }
-               local code = compiler.compile(src, filepath)
-               return assert(loadstring(code, '@'..filepath))
+               local fun = compiler.compile(src, filepath)
+               return fun
             end
          end
       end
@@ -804,12 +858,12 @@ local function runopt(args)
       if not opts[1] then
          error("no chunk or script file provided")
       end
-      name = '@'..opts[1]
+      name = opts[1]
       local file = assert(io.open(opts[1], 'r'))
       code = file:read('*a')
       file:close()
    end
-   local main = assert(loadstring(compiler.compile(code, name, opts), name))
+   local main = compiler.compile(code, name, opts)
    if not opts['-b'] then
       main(unpack(args))
    end
@@ -826,6 +880,8 @@ local predef = {
    import = import;
    yield  = yield;
    throw  = error;
+   trace  = trace;
+   traceback = traceback;
    grammar = grammar;
    __rule__ = rule;
    include  = include;
@@ -850,5 +906,6 @@ export.predef = predef
 
 system = require('system.nga')
 package.loaded['@system'] = system
+
 return export
 

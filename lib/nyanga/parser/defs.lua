@@ -6,6 +6,11 @@ See Copyright Notice in nyanga
 local ffi  = require('ffi')
 local defs = { }
 local util = require('nyanga.util')
+local line = 1
+
+function defs.line()
+   line = line + 1
+end
 
 local int64_t  = ffi.typeof('int64_t')
 local uint64_t = ffi.typeof('uint64_t')
@@ -59,7 +64,8 @@ function defs.escape(s)
    error("invalid escape sequence")
 end
 function defs.chunk(body)
-   return { type = "Chunk", body = body }
+   line = 0
+   return { type = "Chunk", body = body, line = line }
 end
 function defs.stmt(pos, node)
    node.pos = pos
@@ -78,24 +84,25 @@ function defs.expr(pos, node)
 end
 
 function defs.includeStmt(list)
-   return { type = "IncludeStatement", list = list }
+   return { type = "IncludeStatement", list = list, line = line }
 end
 function defs.moduleDecl(name, body)
-   return { type = "ModuleDeclaration", id = name, body = body }
+   return { type = "ModuleDeclaration", id = name, body = body, line = line }
 end
 
 function defs.exportStmt(names)
-   return { type = "ExportStatement", names = names }
+   return { type = "ExportStatement", names = names, line = line }
 end
 function defs.rawString(exprs)
-   return { type = "RawString", expressions = exprs }
+   return { type = "RawString", expressions = exprs, line = line }
 end
 function defs.rawExpr(expr)
-   return { type = "RawExpression", expression = expr }
+   return { type = "RawExpression", expression = expr, line = line }
 end
 function defs.importStmt(names, from, ...)
-   return { type = "ImportStatement", names = names, from = from }
+   return { type = "ImportStatement", names = names, from = from, line = line }
 end
+
 function defs.error(src, pos, name)
    local loc = string.sub(src, pos, pos)
    if loc == '' then
@@ -126,35 +133,35 @@ function defs.fail(src, pos, msg)
    end
 end
 function defs.literal(val)
-   return { type = "Literal", value = val }
+   return { type = "Literal", value = val, line = line }
 end
 function defs.literalNumber(s)
-   return { type = "Literal", value = tonumber(s) }
+   return { type = "Literal", value = tonumber(s), line = line }
 end
 function defs.boolean(val)
    return val == 'true'
 end
 function defs.nilExpr()
-   return { type = "Literal", value = nil }
+   return { type = "Literal", value = nil, line = line }
 end
 function defs.identifier(name)
-   return { type = "Identifier", name = name }
+   return { type = "Identifier", name = name, line = line }
 end
 function defs.compExpr(body, blocks)
-   return { type = "ArrayComprehension", blocks = blocks, body = body }
+   return { type = "ArrayComprehension", blocks = blocks, body = body, line = line }
 end
 function defs.compBlock(lhs, rhs, filter)
-   return { type = "ComprehensionBlock", left = lhs, right = rhs, filter = filter }
+   return { type = "ComprehensionBlock", left = lhs, right = rhs, filter = filter, line = line }
 end
 function defs.arrayExpr(elements)
-   return { type = "ArrayExpression", elements = elements }
+   return { type = "ArrayExpression", elements = elements, line = line }
 end
 
 function defs.arrayPatt(elements)
-   return { type = "ArrayPattern", elements = elements }
+   return { type = "ArrayPattern", elements = elements, line = line }
 end
 function defs.tablePatt(entries, coerce)
-   return { type = "TablePattern", entries = entries, coerce = coerce }
+   return { type = "TablePattern", entries = entries, coerce = coerce, line = line }
 end
 function defs.applyPatt(expr)
    local base = expr[1]
@@ -175,7 +182,7 @@ function defs.tableEntry(item)
 end
 
 function defs.tableExpr(entries)
-   return { type = "TableExpression", entries = entries }
+   return { type = "TableExpression", entries = entries, line = line }
 end
 --[[
 function defs.regexExpr(expr, flags)
@@ -192,13 +199,13 @@ function defs.ifStmt(test, cons, altn)
    if altn and altn.type ~= "BlockStatement" then
       altn = defs.blockStmt{ altn }
    end
-   return { type = "IfStatement", test = test, consequent = cons, alternate = altn }
+   return { type = "IfStatement", test = test, consequent = cons, alternate = altn, line = line }
 end
 function defs.whileStmt(test, body)
-   return { type = "WhileStatement", test = test, body = body }
+   return { type = "WhileStatement", test = test, body = body, line = line }
 end
 function defs.repeatStmt(body, test)
-   return { type = "RepeatStatement", test = test, body = body }
+   return { type = "RepeatStatement", test = test, body = body, line = line }
 end
 function defs.forStmt(name, init, last, step, body)
    return {
@@ -208,10 +215,10 @@ function defs.forStmt(name, init, last, step, body)
    }
 end
 function defs.forInStmt(left, right, body)
-   return { type = "ForInStatement", left = left, right = right, body = body }
+   return { type = "ForInStatement", left = left, right = right, body = body, line = line }
 end
 function defs.spreadExpr(arg)
-   return { type = "SpreadExpression", argument = arg }
+   return { type = "SpreadExpression", argument = arg, line = line }
 end
 function defs.funcDecl(path, head, body)
    if body.type ~= "BlockStatement" then
@@ -280,33 +287,33 @@ end
 function defs.blockStmt(body)
    return {
       type = "BlockStatement",
-      body = body
+      body = body, line = line
    }
 end
 function defs.givenStmt(disc, cases, default)
    if default then
       cases[#cases + 1] = defs.givenCase(nil, default)
    end
-   return { type = "GivenStatement", discriminant = disc, cases = cases }
+   return { type = "GivenStatement", discriminant = disc, cases = cases, line = line }
 end
 function defs.givenCase(test, cons)
-   return { type = "GivenCase", test = test, consequent = cons }
+   return { type = "GivenCase", test = test, consequent = cons, line = line }
 end
 
 function defs.returnStmt(args)
-   return { type = "ReturnStatement", arguments = args }
+   return { type = "ReturnStatement", arguments = args, line = line }
 end
 function defs.yieldStmt(args)
-   return { type = "YieldStatement", arguments = args }
+   return { type = "YieldStatement", arguments = args, line = line }
 end
 function defs.breakStmt()
-   return { type = "BreakStatement" }
+   return { type = "BreakStatement", line = line }
 end
 function defs.continueStmt()
-   return { type = "ContinueStatement" }
+   return { type = "ContinueStatement", line = line }
 end
 function defs.throwStmt(expr)
-   return { type = "ThrowStatement", argument = expr }
+   return { type = "ThrowStatement", argument = expr, line = line }
 end
 function defs.tryStmt(body, handlers, finalizer)
    local guarded = { }
@@ -329,17 +336,17 @@ function defs.tryStmt(body, handlers, finalizer)
 end
 function defs.catchClause(param, guard, body)
    if not body then body, guard = guard, nil end
-   return { type = "CatchClause", param = param, guard = guard, body = body }
+   return { type = "CatchClause", param = param, guard = guard, body = body, line = line }
 end
 
 function defs.classDecl(name, base, body)
    if #base == 0 and not base.type then
       base = nil
    end
-   return { type = "ClassDeclaration", id = name, base = base, body = body }
+   return { type = "ClassDeclaration", id = name, base = base, body = body, line = line }
 end
 function defs.classBody(body)
-   return { type = "ClassBody", body = body }
+   return { type = "ClassBody", body = body, line = line }
 end
 function defs.classMember(s, m)
    m.static = s == "static"
@@ -354,10 +361,10 @@ function defs.propDefn(k, n, h, b)
       func.defaults[i + 1] = func.defaults[i]
    end
    func.defaults[1] = nil
-   return { type = "PropertyDefinition", kind = k, key = n, value = func }
+   return { type = "PropertyDefinition", kind = k, key = n, value = func, line = line }
 end
 function defs.exprStmt(pos, expr)
-   return { type = "ExpressionStatement", expression = expr, pos = pos }
+   return { type = "ExpressionStatement", expression = expr, pos = pos, line = line }
 end
 function defs.selfExpr()
    return { type = "SelfExpression" }
@@ -366,7 +373,7 @@ function defs.superExpr()
    return { type = "SuperExpression" }
 end
 function defs.prefixExpr(o, a)
-   return { type = "UnaryExpression", operator = o, argument = a }
+   return { type = "UnaryExpression", operator = o, argument = a, line = line }
 end
 function defs.postfixExpr(expr)
    local base = expr[1]
@@ -381,32 +388,32 @@ function defs.postfixExpr(expr)
    return base
 end
 function defs.memberExpr(b, e, c)
-   return { type = "MemberExpression", object = b, property = e, computed = c }
+   return { type = "MemberExpression", object = b, property = e, computed = c, line = line }
 end
 function defs.callExpr(expr, args)
-   return { type = "CallExpression", callee = expr, arguments = args } 
+   return { type = "CallExpression", callee = expr, arguments = args, line = line } 
 end
 function defs.newExpr(expr, args)
-   return { type = "NewExpression", callee = expr, arguments = args } 
+   return { type = "NewExpression", callee = expr, arguments = args, line = line } 
 end
 
 function defs.binaryExpr(op, lhs, rhs)
-   return { type = "BinaryExpression", operator = op, left = lhs, right = rhs }
+   return { type = "BinaryExpression", operator = op, left = lhs, right = rhs, line = line }
 end
 function defs.logicalExpr(op, lhs, rhs)
-   return { type = "LogicalExpression", operator = op, left = lhs, right = rhs }
+   return { type = "LogicalExpression", operator = op, left = lhs, right = rhs, line = line }
 end
 function defs.assignExpr(lhs, rhs)
-   return { type = "AssignmentExpression", left = lhs, right = rhs }
+   return { type = "AssignmentExpression", left = lhs, right = rhs, line = line }
 end
 function defs.updateExpr(left, op, right)
-   return { type = "UpdateExpression", left = left, operator = op, right = right }
+   return { type = "UpdateExpression", left = left, operator = op, right = right, line = line }
 end
 function defs.localDecl(lhs, rhs)
-   return { type = "VariableDeclaration", names = lhs, inits = rhs }
+   return { type = "VariableDeclaration", names = lhs, inits = rhs, line = line }
 end
 function defs.doStmt(block)
-   return { type = "DoStatement", body = block }
+   return { type = "DoStatement", body = block, line = line }
 end
 
 local op_info = {
@@ -507,14 +514,14 @@ function defs.infixExpr(exp)
 end
 
 function defs.regexExpr(expr)
-   return { type = "RegExp", pattern = expr }
+   return { type = "RegExp", pattern = expr, line = line }
 end
 
 function defs.grammarDecl(name, body)
-   return { type = "GrammarDeclaration", id = name, body = body }
+   return { type = "GrammarDeclaration", id = name, body = body, line = line }
 end
 function defs.pattGrammar(rules)
-   return { type = "PatternGrammar", rules = rules }
+   return { type = "PatternGrammar", rules = rules, line = line }
 end
 
 function defs.pattExpr(pass)
@@ -523,19 +530,19 @@ end
 
 function defs.pattAlt(list)
    return util.fold_left(list, function(a, b)
-      return { type = "PatternAlternate", left = a, right = b }
+      return { type = "PatternAlternate", left = a, right = b, line = line }
    end)
 end
 function defs.pattSeq(list)
    return util.fold_left(list, function(a, b)
-      return { type = "PatternSequence", left = a, right = b }
+      return { type = "PatternSequence", left = a, right = b, line = line }
    end)
 end
 function defs.pattAny()
-   return { type = "PatternAny" }
+   return { type = "PatternAny", line = line }
 end
 function defs.pattAssert(oper, term)
-   return { type = "PatternAssert", operator = oper, argument = term }
+   return { type = "PatternAssert", operator = oper, argument = term, line = line }
 end
 
 function defs.pattSuffix(term, tail)
@@ -550,7 +557,7 @@ function defs.pattSuffix(term, tail)
    return left
 end
 function defs.pattProd(oper, expr)
-   return { type = "PatternProduction", operator = oper, right = expr }
+   return { type = "PatternProduction", operator = oper, right = expr, line = line }
 end
 function defs.pattOpt(oper)
    local count
@@ -561,53 +568,53 @@ function defs.pattOpt(oper)
    else assert(oper == '+')
       count = 1
    end
-   return { type = "PatternRepeat", count = count }
+   return { type = "PatternRepeat", count = count, line = line }
 end
 function defs.pattRep(count)
-   return { type = "PatternRepeat", count = tonumber(count) }
+   return { type = "PatternRepeat", count = tonumber(count), line = line }
 end
 
 function defs.pattCaptSubst(expr)
-   return { type = "PatternCaptSubst", pattern = expr }
+   return { type = "PatternCaptSubst", pattern = expr, line = line }
 end
 function defs.pattCaptTable(expr)
-   return { type = "PatternCaptTable", pattern = expr or defs.literal("") }
+   return { type = "PatternCaptTable", pattern = expr or defs.literal(""), line = line }
 end
 function defs.pattCaptBasic(expr)
-   return { type = "PatternCaptBasic", pattern = expr }
+   return { type = "PatternCaptBasic", pattern = expr, line = line }
 end
 function defs.pattCaptConst(expr)
-   return { type = "PatternCaptConst", argument = expr }
+   return { type = "PatternCaptConst", argument = expr, line = line }
 end
 function defs.pattCaptGroup(name, expr)
-   return { type = "PatternCaptGroup", name = name, pattern = expr }
+   return { type = "PatternCaptGroup", name = name, pattern = expr, line = line }
 end
 function defs.pattCaptBack(name)
-   return { type = "PatternCaptBack", name = name }
+   return { type = "PatternCaptBack", name = name, line = line }
 end
 function defs.pattRef(name)
-   return { type = "PatternReference", name = name }
+   return { type = "PatternReference", name = name, line = line }
 end
 function defs.pattClass(prefix, items)
    local expr = util.fold_left(items, function(a, b)
-      return { type = "PatternAlternate", left = a, right = b }
+      return { type = "PatternAlternate", left = a, right = b, line = line }
    end)
-   return { type = "PatternClass", negated = prefix == '^', alternates = expr }
+   return { type = "PatternClass", negated = prefix == '^', alternates = expr, line = line }
 end
 function defs.pattRange(left, right)
-   return { type = "PatternRange", left = left, right = right }
+   return { type = "PatternRange", left = left, right = right, line = line }
 end
 function defs.pattName(name)
    return name
 end
 function defs.pattTerm(literal)
-   return { type = "PatternTerm", literal = literal }
+   return { type = "PatternTerm", literal = literal, line = line }
 end
 function defs.pattPredef(name)
-   return { type = "PatternPredef", name = name }
+   return { type = "PatternPredef", name = name, line = line }
 end
 function defs.pattArg(index)
-   return { type = "PatternArgument", index = index }
+   return { type = "PatternArgument", index = index, line = line }
 end
 
 

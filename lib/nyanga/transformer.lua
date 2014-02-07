@@ -120,24 +120,20 @@ local function countln(src, pos, idx)
    return line 
 end
 function Context:sync(node)
-   local pos = node.pos
-   if pos ~= nil and pos > self.pos then
-      local prev = self.pos
-      local line = countln(self.src, pos, prev + 1) + self.line
-      self.line = line
-      self.pos  = pos
+   if node.line then
+      self.line = node.line
    end
 end
 
 local match = { }
 
-local globals = { 'Array', 'Error', 'Class', 'Module' }
+local globals = { 'Array', 'Error', 'Class', 'Module', 'trace' }
 for k,v in pairs(_G) do
    globals[#globals + 1] = k
 end
 
 local predef = {
-   'try', 'Array', 'Error', 'Module', 'Class', 'class',
+   'try', 'Array', 'Error', 'Module', 'Class', 'class', 'trace',
    'module', 'import', 'yield', 'throw', 'grammar', '__rule__',
    'include', '__range__', '__spread__', '__typeof__', '__match__',
    '__extract__', '__each__', '__var__', '__in__', '__is__', '__as__',
@@ -145,19 +141,22 @@ local predef = {
 }
 
 function match:Chunk(node, opts)
-   local block = { }
+   local chunk = { }
    for i=1, #globals do
       self.ctx:define(globals[i])
    end
-   ---[[
+
+   self.ctx:enter(true)
+
    -- import predefs from runtime
    self.ctx:hoist(B.localDeclaration(
       { B.identifier('__nyanga__') },
       { B.memberExpression(
-         B.callExpression(B.identifier('require'), {B.literal('nyanga.runtime')}),
+         B.callExpression(B.identifier('require'), { B.literal('nyanga.runtime') }),
          B.identifier('predef')
       ) }
    ))
+
    local imports = { }
    local symbols = { }
    for i=1, #predef do
@@ -169,16 +168,18 @@ function match:Chunk(node, opts)
    end
 
    self.ctx:hoist(B.localDeclaration(symbols, imports))
-   --]]
+
    local export = B.identifier('export')
-   block[#block + 1] = B.localDeclaration({ export }, { B.table({}) })
+   chunk[#chunk + 1] = B.localDeclaration({ export }, { B.table({}) })
    for i=1, #node.body do
       local stmt = self:get(node.body[i])
-      block[#block + 1] = stmt
+      chunk[#chunk + 1] = stmt
    end
-   self.ctx:unhoist(block)
-   block[#block + 1] = B.returnStatement({ export })
-   return B.chunk(block)
+
+   self.ctx:leave(chunk)
+   chunk[#chunk + 1] = B.returnStatement({ export })
+
+   return B.chunk(chunk)
 end
 function match:ImportStatement(node)
    local args = { self:get(node.from) }
@@ -1314,9 +1315,8 @@ local function transform(tree, src, name)
          error("no handler for "..tostring(node.type))
       end
       self.ctx:sync(node)
-      local line = self.ctx.line
-      local out  = match[node.type](self, node, ...)
-      if out then out.line = line end
+      local out = match[node.type](self, node, ...)
+      if out then out.line = node.line or self.ctx.line end
       return out
    end
 

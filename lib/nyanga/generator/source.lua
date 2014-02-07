@@ -10,7 +10,7 @@ Writer.__index = Writer
 
 function Writer:new()
    return setmetatable({
-      line   = 1,
+      line   = 0,
       level  = 0,
       dent   = '   ',
       margin = '',
@@ -27,14 +27,16 @@ function Writer:undent()
    self.margin = string.rep(self.dent, self.level)
 end
 function Writer:writeln()
-   self.buffer[#self.buffer + 1] = "\n"..self.margin
    self.srcmap[#self.srcmap + 1] = self.line
+   self.buffer[#self.buffer + 1] = "\n"..self.margin
 end
 function Writer:write(str)
    self.buffer[#self.buffer + 1] = str
 end
 function Writer:__tostring()
-   return table.concat(self.buffer)
+   local luasrc = table.concat(self.buffer)
+   --return 'return xpcall(function(...) '..luasrc..' end,__nyanga__.traceback,...)'
+   return luasrc
 end
 
 local match = { }
@@ -144,6 +146,23 @@ end
 function match:Literal(node)
    if type(node.value) == "string" then
       self:write(string.format("(%q)", node.value))
+      local lns = 0
+      local ofs = 0
+      local src = node.value
+      while true do
+         local a, b = string.find(src, "\n", ofs)
+         if a then
+            ofs = a + 1
+            lns = lns + 1
+         else
+            break
+         end
+      end
+      local w = self.writer
+      for i=1, lns do
+         w.srcmap[#w.srcmap + 1] = w.line + i - 1
+      end
+      w.line = w.line + lns
    else
       self:write("("..tostring(node.value)..")")
    end
@@ -362,7 +381,7 @@ local function generate(tree)
          error("no handler for "..node.kind)
       end
       if node.line then
-         self.line = node.line
+         self.writer.line = node.line
       end
       return match[node.kind](self, node, ...)
    end
@@ -370,7 +389,7 @@ local function generate(tree)
       writer:write(frag)
    end
    self:render(tree)
-   return tostring(writer)
+   return tostring(writer), writer.srcmap
 end
 
 return {

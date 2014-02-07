@@ -41,7 +41,7 @@ local function compile(src, name, opts)
       jbc.dump(fn, nil, true)
    end
 
-   return luacode
+   return loadstring(luacode, "@"..name)
 end
 
 return {
