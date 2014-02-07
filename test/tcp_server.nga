@@ -1,4 +1,5 @@
-import TCPServer, async from "@system"
+import TCPServer from "socket.nga"
+import async from "@system"
 
 ffi = require "ffi"
 
@@ -10,12 +11,15 @@ server.nonblocking = true
 
 async =>
    while true do
+      print "loop top"
       client = server.accept()
+      print "accept", client
       async =>
          while true do
             buf = ffi::new('char[256]')
+            print "reading..."
             got = client.read(buf, 256)
-            if got < 0 then
+            if not got then
                client.close()
                break
             end

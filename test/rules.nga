@@ -1,26 +1,28 @@
 grammar Macro
-   rule text
-      {~ <item>* ~}
-   end
-   rule item
-      <macro> | [^()] | '(' <item>* ')'
-   end
-   rule arg
-      ' '* {~ (!',' <item>)* ~}
-   end
-   rule args
-      '(' <arg> (',' <arg>)* ')'
-   end
-   rule macro
-      | ('apply' <args>) -> '%1(%2)'
+   text  <- {~ <item>* ~}
+   item  <- <macro> | [^()] | '(' <item>* ')'
+   arg   <- ' '* {~ (!',' <item>)* ~}
+   args  <- '(' <arg> (',' <arg>)* ')'
+   macro <- (
+        ('apply' <args>) -> '%1(%2)'
       | ('add'   <args>) -> '%1 + %2'
       | ('mul'   <args>) -> '%1 * %2'
-   end
+   )
 end
 
 local s = "add(mul(a,b),apply(f,x))"
-local p = Macro()
-print(p, p.match(s))
+print(Macro.match(s))
 
-print Macro.item
+g2 = /
+   text  <- {~ <item>* ~}
+   item  <- <macro> | [^()] | '(' <item>* ')'
+   arg   <- ' '* {~ (!',' <item>)* ~}
+   args  <- '(' <arg> (',' <arg>)* ')'
+   macro <- (
+        ('apply' <args>) -> '%1(%2)'
+      | ('add'   <args>) -> '%1 + %2'
+      | ('mul'   <args>) -> '%1 * %2'
+   )
+/
 
+print(g2, g2.match(s))

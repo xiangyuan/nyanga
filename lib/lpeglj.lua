@@ -62,7 +62,7 @@ ffi.cdef[[
                   int ps;
                   int cap;
                  } TREEPATTERN_ELEMENT;
-  typedef struct {
+  typedef struct Pattern {
                   int id;
                   int treesize;
                   PATTERN *code;

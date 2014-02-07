@@ -5,6 +5,7 @@ function* gen(x)
 end
 
 foo = gen(10)
+
 print(foo())
 print(foo())
 print(foo())

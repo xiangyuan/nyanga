@@ -15,6 +15,7 @@ function Writer:new()
       dent   = '   ',
       margin = '',
       buffer = { },
+      srcmap = { },
    }, self)
 end
 function Writer:indent()
@@ -27,7 +28,7 @@ function Writer:undent()
 end
 function Writer:writeln()
    self.buffer[#self.buffer + 1] = "\n"..self.margin
-   self.line = self.line + 1
+   self.srcmap[#self.srcmap + 1] = self.line
 end
 function Writer:write(str)
    self.buffer[#self.buffer + 1] = str
@@ -359,6 +360,9 @@ local function generate(tree)
       end
       if not match[node.kind] then
          error("no handler for "..node.kind)
+      end
+      if node.line then
+         self.line = node.line
       end
       return match[node.kind](self, node, ...)
    end

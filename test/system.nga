@@ -1,4 +1,4 @@
-import {sleep, async, await, TCPServer} from "@system"
+import sleep, async, await, TCPServer from "lib/fiber.nga"
 
 async =>
    sleep 1000
@@ -11,7 +11,7 @@ answer = await async =>
    print "tick 2"
    return 42
 end
-print `answer ${answer}.`
+print "answer ${answer}."
 
 async =>
    sleep 500
@@ -27,7 +27,7 @@ async =>
          while true do
             data = client.read()
             if data then
-               client.write(`you said ${data}`)
+               client.write("you said ${data}")
             else
                client.close()
                break

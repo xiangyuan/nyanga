@@ -144,11 +144,12 @@ local predef = {
    'ArrayPattern', 'TablePattern', 'ApplyPattern'
 }
 
-function match:Chunk(node)
+function match:Chunk(node, opts)
    local block = { }
    for i=1, #globals do
       self.ctx:define(globals[i])
    end
+   ---[[
    -- import predefs from runtime
    self.ctx:hoist(B.localDeclaration(
       { B.identifier('__nyanga__') },
@@ -168,6 +169,7 @@ function match:Chunk(node)
    end
 
    self.ctx:hoist(B.localDeclaration(symbols, imports))
+   --]]
    local export = B.identifier('export')
    block[#block + 1] = B.localDeclaration({ export }, { B.table({}) })
    for i=1, #node.body do

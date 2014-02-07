@@ -210,21 +210,21 @@ function match:IfStatement(node, nest, exit)
       local treg = self.ctx:nextreg()
       local o = test.operator
       if test.kind == 'BinaryExpression' and cmpop[o] then
-         local a = self:emit(test.left, self.ctx:nextreg())
+         local a = self:emit(test.left, treg)
          local b = self:emit(test.right, self.ctx:nextreg())
-         self.ctx.freereg = free
          self.ctx:op_comp(cmpop[o], a, b, altl)
       else
          self:emit(test, treg, 1)
-         self.ctx.freereg = free
          self.ctx:op_test(false, treg, altl)
       end
    end
 
+   self.ctx.freereg = free
    self.ctx:enter()
    self:emit(node.consequent)
    self.ctx:leave()
 
+   self.ctx.freereg = free
    if node.alternate then
       self.ctx:jump(exit)
    end
@@ -248,7 +248,7 @@ function match:BinaryExpression(node, dest, want)
    local free = self.ctx.freereg
    dest = dest or self.ctx:nextreg()
    local o = node.operator
-   local a = self:emit(node.left, self.ctx:nextreg(), 1)
+   local a = self:emit(node.left, dest, 1)
    local b = self:emit(node.right, self.ctx:nextreg(), 1)
    if o == '+' then
       self.ctx:op_add(dest, a, b)
@@ -270,6 +270,7 @@ function match:BinaryExpression(node, dest, want)
       local j2 = util.genid()
       self.ctx:op_comp(cmpop2[o], a, b, j1)
       self.ctx:op_load(dest, false)
+      self.ctx.freereg = free
       self.ctx:jump(j2)
       self.ctx:here(j1)
       self.ctx:op_load(dest, true)
@@ -344,36 +345,60 @@ function match:AssignmentExpression(node)
    local free = self.ctx.freereg
    local want = #node.left
 
-   local base = self.ctx:nextreg(want)
+   for i=1, #node.left do
+      local lhs = node.left[i]
+      if lhs.kind == 'MemberExpression' then
+         if lhs.object.kind == 'Identifier' then
+            lhs.obj = self:emit(lhs.object, nil, 1)
+         else
+            lhs.obj = self:emit(lhs.object, self.ctx:nextreg(), 1)
+         end
+         if lhs.computed then
+            lhs.key = self:emit(lhs.property, self.ctx:nextreg(), 1)
+         elseif lhs.property.kind == 'Identifier' then
+            local idx = self.ctx:const(lhs.property.name)
+            if idx < 0xff then
+               lhs.key = lhs.property.name
+            else
+               lhs.key = self:emit(lhs.property, self.ctx:nextreg(), 1)
+            end
+         else
+            lhs.key = self:emit(lhs.property, self.ctx:nextreg(), 1)
+         end
+      end
+   end
+
+   local list = { }
    for i=1, #node.right do
       local w = want - (i - 1)
-      self:emit(node.right[i], base + i - 1, w)
+      local n = node.right[i]
+      if n.kind == 'Identifier' then
+         list[#list + 1] = self:emit(n, nil, w)
+      else
+         list[#list + 1] = self:emit(node.right[i], self.ctx:nextreg(), w)
+      end
+   end
+
+   for i=#node.right + 1, want do
+      list[#list + 1] = self.ctx:nextreg()
    end
 
    for i = #node.left, 1, -1 do
-      local lhs  = node.left[i]
-      local expr = base + i - 1
+      local lhs = node.left[i]
+      local rhs = list[i]
       if lhs.kind == 'Identifier' then
          local info, uval = self.ctx:lookup(lhs.name)
          if info then
             if uval then
-               self.ctx:op_uset(lhs.name, expr)
+               self.ctx:op_uset(lhs.name, rhs)
             else
-               self.ctx:op_move(info.idx, expr)
+               self.ctx:op_move(info.idx, rhs)
             end
          else
-            self.ctx:op_gset(expr, lhs.name)
+            self.ctx:op_gset(rhs, lhs.name)
          end
       elseif lhs.kind == 'MemberExpression' then
-         local obj = self:emit(lhs.object, self.ctx:nextreg(), 1)
-         local key
-         if lhs.property.kind == 'Identifier' and not lhs.computed then
-            key = self.ctx:nextreg()
-            self.ctx:op_load(key, lhs.property.name)
-         else
-            key = self:emit(lhs.property, self.ctx:nextreg(), 1)
-         end
-         self.ctx:op_tset(obj, key, expr)
+         self.ctx:op_tset(lhs.obj, lhs.key, rhs)
       else
          error("Invalid left-hand side in assignment")
       end
@@ -394,21 +419,30 @@ function match:LogicalExpression(node, dest, want)
       error("bad operator in logical expression: "..node.operator)
    end
    self:emit(node.right, dest, 1)
-   self.ctx:here(l)
    self.ctx.freereg = free
+   self.ctx:here(l)
    return dest
 end
 function match:MemberExpression(node, dest, want)
    local free = self.ctx.freereg
    dest = dest or self.ctx:nextreg()
-   local expr = self.ctx:nextreg()
-   local base = self:emit(node.object, nil, 1)
-   if node.computed then
-      expr = self:emit(node.property, expr, 1)
-   elseif node.property.kind == 'Identifier' then
-      expr = node.property.name
+   local expr, base
+   if node.object.kind == 'Identifier' then
+      base = self:emit(node.object, nil, 1)
    else
-      expr = self:emit(node.property, expr, 1)
+      base = self:emit(node.object, dest, 1)
+   end
+   if node.computed then
+      expr = self:emit(node.property, self.ctx:nextreg(), 1)
+   elseif node.property.kind == 'Identifier' then
+      local idx = self.ctx:const(node.property.name)
+      if idx < 0xff then
+         expr = node.property.name
+      else
+         expr = self:emit(node.property, self.ctx:nextreg(), 1)
+      end
+   else
+      expr = self:emit(node.property, self.ctx:nextreg(), 1)
    end
    self.ctx:op_tget(dest, base, expr)
    self.ctx.freereg = free
@@ -461,7 +495,6 @@ function match:FunctionExpression(node, dest)
 end
 function match:WhileStatement(node)
    local free = self.ctx.freereg
-   self.ctx:enter()
 
    local loop = util.genid()
    local exit = util.genid()
@@ -474,20 +507,23 @@ function match:WhileStatement(node)
    local test = node.test
    local o = test.operator
    if test.kind == 'BinaryExpression' and cmpop[o] then
-      local a = self:emit(test.left, self.ctx:nextreg())
+      local a = self:emit(test.left, treg)
       local b = self:emit(test.right, self.ctx:nextreg())
+      self.ctx:op_comp(cmpop[o], a, b)
       self.ctx.freereg = free
-      self.ctx:op_comp(cmpop[o], a, b, exit)
+      self.ctx:jump(exit)
    else
       self:emit(test, treg, 1)
+      self.ctx:op_test(false, treg)
       self.ctx.freereg = free
-      self.ctx:op_test(false, treg, exit)
+      self.ctx:jump(exit)
    end
 
+   self.ctx.freereg = free
    self.ctx:loop(exit)
+   self.ctx:enter()
    self:emit(node.body)
-
-   self.ctx:jump(loop, self.ctx.scope.upval)
+   self.ctx:jump(loop, self.ctx.scope.upval, free)
    self.ctx.scope.upval = nil
    self.ctx:leave()
    self.ctx:here(exit)
@@ -511,7 +547,7 @@ function match:RepeatStatement(node)
    local test = node.test
    if test.kind == 'BinaryExpression' and cmpop[o] then
       local o = test.operator
-      local a = self:emit(test.left, self.ctx:nextreg())
+      local a = self:emit(test.left, treg)
       local b = self:emit(test.right, self.ctx:nextreg())
       self.ctx.freereg = free
       self.ctx:op_comp(cmpop[o], a, b)

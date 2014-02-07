@@ -361,14 +361,14 @@ function Proto.__index:nextreg(num)
    end
    return reg
 end
-function Proto.__index:getbase()
+function Proto.__index:nactvars()
    return self.scope.basereg + #self.scope.actvars
 end
 function Proto.__index:enter()
    local outer = self.scope
    self.scope = {
       actvars = { };
-      basereg = self:getbase();
+      basereg = self:nactvars();
       outer   = outer;
       upval   = false;
    }
@@ -381,8 +381,8 @@ function Proto.__index:leave(base)
    for i=1, #self.scope.actvars do
       self.scope.actvars[i].endpc = #self.code
    end
-   self.scope   = self.scope.outer
-   self.freereg = self:getbase()
+   self.scope = self.scope.outer
+   self.freereg = self:nactvars()
 end
 function Proto.__index:close()
    self.numlines = self.lastline - self.firstline
@@ -633,6 +633,9 @@ function Proto.__index:here(name)
       for i=1, #back do
          local offs = back[i]
          local dest = #self.code - offs
+         if self.code[offs][1] == BC.JMP then
+            self.code[offs][2] = self.freereg
+         end
          self.code[offs][3] = dest
          if self.lastjmp < dest + offs + 1 then
             self.lastjmp = dest + offs + 1
@@ -653,8 +656,8 @@ function Proto.__index:label(name)
    end
    here[#here + 1] = #self.code + 1
 end
-function Proto.__index:jump(name, uclo)
-   local base = self:getbase()
+function Proto.__index:jump(name, uclo, base)
+   base = base or self.freereg
    local oper = uclo and BC.UCLO or BC.JMP
    if uclo then
       base = self.scope.basereg
@@ -673,18 +676,18 @@ function Proto.__index:loop(name)
    if self.labels[name] then
       -- backward jump
       local offs = self.labels[name]
-      return self:emit(BC.LOOP, self:getbase(), offs - #self.code)
+      return self:emit(BC.LOOP, self:nactvars(), offs - #self.code)
    else
       -- forward jump
       self:label(name)
-      return self:emit(BC.LOOP, self:getbase(), NO_JMP)
+      return self:emit(BC.LOOP, self:nactvars(), NO_JMP)
    end
 end
 function Proto.__index:op_jump(base, delta)
    return self:emit(BC.JMP, base or self.freereg, delta)
 end
 function Proto.__index:op_loop(delta)
-   return self:emit(BC.LOOP, self:getbase(), delta)
+   return self:emit(BC.LOOP, self:nactvars(), delta)
 end
 
 -- branch if condition

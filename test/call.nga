@@ -1,8 +1,6 @@
-obj = {
-   greet(name)
-      print(`Hello ${name}`)
-   end
-}
+function f1(a, b)
+   return a * b
+end
 
-obj.greet "Rich"
+print("test", f1(1, 2))
 

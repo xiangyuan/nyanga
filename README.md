@@ -10,6 +10,8 @@ The goal of the project is to allow rapid experimentation with Lua's surface syn
 
 Nyanga consists of an LPeg based parser which uses the re.lua module, an AST transformer and bytecode generator for LuaJIT 2.
 
+NOTE: you'll need to compile LuaJIT 2 with Lua 5.2 support enabled!
+
 Here's a quick sample showing some of the features:
 
 ```Lua
@@ -90,13 +92,12 @@ print(x, y, z) -- 1  2  3
 Strings come in three flavours:
 
 ```
-s1 = "simple"
-s2 = 'another'
-s3 = `a ${s1} string and ${s2}` -- backticks interpolate
-s4 = `
+s1 = 'another'
+s2 = "a ${s1} string and ${s2}" -- double quoted strings interpolate
+s3 = "
     strings can span
     multiple lines
-`
+"
 ```
 
 ### Ranges

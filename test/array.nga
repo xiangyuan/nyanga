@@ -11,3 +11,8 @@ end
 a.map (_) => print(_)
 
 print #a == a.length
+
+for i,v in ipairs(["2", "3", "4"]) do
+   print(i, '=>', v)
+end
+
