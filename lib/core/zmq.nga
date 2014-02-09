@@ -1,0 +1,389 @@
+local ffi = require('ffi')
+local zmq = require('core/czmq_h.nga')
+local C   = ffi.C
+
+ZMQ = {
+   PAIR = C.ZMQ_PAIR;
+   PUB  = C.ZMQ_PUB;
+   SUB  = C.ZMQ_SUB;
+   REQ  = C.ZMQ_REQ;
+   REP  = C.ZMQ_REP;
+   PULL = C.ZMQ_PULL;
+   PUSH = C.ZMQ_PUSH;
+   XPUB = C.ZMQ_XPUB;
+   XSUB = C.ZMQ_XSUB;
+
+   DEALER = C.ZMQ_DEALER;
+   ROUTER = C.ZMQ_ROUTER;
+
+   POLLIN  = C.ZMQ_POLLIN;
+   POLLOUT = C.ZMQ_POLLOUT;
+   POLLERR = C.ZMQ_POLLERR;
+   IGNERR  = C.ZMQ_IGNERR;
+}
+
+ZSOCKET = {
+   DYNFROM = C.ZSOCKET_DYNFROM;
+   DYNTO   = C.ZSOCKET_DYNTO;
+}
+
+ZFRAME = {
+   MORE     = C.ZFRAME_MORE;
+   REUSE    = C.ZFRAME_REUSE;
+   DONTWAIT = C.ZFRAME_DONTWAIT;
+}
+
+module CType
+   local ctype = ...
+   static __included(self, into)
+      into.__ctype = ffi::typeof(ctype)
+      function into.__finalize()
+         ffi::metatype(self.__ctype, into)
+      end
+      function into.__istype(that)
+         return ffi::istype(self.__ctype, that)
+      end
+   end
+end
+
+class ZMQCtx
+   include CType 'zctx_t'
+
+   static __apply(self, ...)
+      inst = zmq::zctx_new()
+      --ffi::gc(inst, self.__members__.destroy)
+      return inst
+   end
+
+   ctx_destroy_p = ffi::new('zctx_t*[1]', self)
+   destroy()
+      ctx_destroy_p[0] = self
+      zmq::zctx_destroy(ctx_destroy_p)
+   end
+
+   static __gc(self)
+      self.destroy()
+   end
+
+   set iothreads(nthreads)
+      zmq::zctx_set_iothreads(self, nthreads)
+   end
+   set hwm(hwm)
+      zmq::zctx_set_hwm(self, hwm)
+   end
+   set linger(linger)
+      zmq::zctx_set_linger(self, linger)
+   end
+
+end
+
+class ZMQSocket
+   include CType 'zsocket_t'
+
+   SOCK2CTX = { }
+
+   static __apply(self, zctx, type)
+      zock = zmq::zsocket_new(zctx, type)
+      inst = ffi::cast('zsocket_t*', zock)
+      ffi::gc(inst, self.__members__.destroy)
+      SOCK2CTX[inst.key] = zctx
+      return inst
+   end
+
+   destroy()
+      key = self.key
+      ctx = SOCK2CTX[key]
+      SOCK2CTX[key] = nil
+      zmq::zsocket_destroy(ctx, self)
+   end
+
+   bind(addr)
+      zmq::zsocket_bind(self, addr)
+   end
+   connect(addr)
+      zmq::zsocket_connect(self, addr)
+   end
+   disconnect(addr)
+      zmq::zsocket_disconnect(self, addr)
+   end
+   poll(msecs)
+      zmq::zsocket_poll(self, msecs)
+   end
+   get readable()
+
+   end
+   send(str)
+      return zmq::zstr_send(self, str)
+   end
+   recv()
+      buf = zmq::zstr_recv(self)
+      str = ffi::string(buf)
+      C::free(buf)
+      return str
+   end
+   get key()
+      return tonumber(ffi::cast('intptr_t', self))
+   end
+
+   get type_str()
+      zmq::zsocket_type_str(self)
+   end
+   get type()
+      zmq::zsocket_type(self)
+   end
+
+   get sndhwm()
+      zmq::zsocket_sndhwm(self)
+   end
+   get rcvhwm()
+      zmq::zsocket_rcvhwm(self)
+   end
+   get affinity()
+      zmq::zsocket_affinity(self)
+   end
+   get identity()
+      zmq::zsocket_identity(self)
+   end
+   get rate()
+      zmq::zsocket_rate(self)
+   end
+   get recovery_ivl()
+      zmq::zsocket_recovery_ivl(self)
+   end
+   get sndbuf()
+      zmq::zsocket_sndbuf(self)
+   end
+   get rcvbuf()
+      zmq::zsocket_rcvbuf(self)
+   end
+   get linger()
+      zmq::zsocket_linger(self)
+   end
+   get reconnect_ivl()
+      zmq::zsocket_reconnect_ivl(self)
+   end
+   get reconnect_ivl_max()
+      zmq::zsocket_reconnect_ivl_max(self)
+   end
+   get backlog()
+      zmq::zsocket_backlog(self)
+   end
+   get maxmsgsize()
+      zmq::zsocket_maxmsgsize(self)
+   end
+   get multicast_hops()
+      zmq::zsocket_multicast_hops(self)
+   end
+   get rcvtimeo()
+      zmq::zsocket_rcvtimeo(self)
+   end
+   get sndtimeo()
+      zmq::zsocket_sndtimeo(self)
+   end
+   get ipv4only()
+      zmq::zsocket_ipv4only(self)
+   end
+   get rcvmore()
+      zmq::zsocket_rcvmore(self)
+   end
+   get fd()
+      zmq::zsocket_fd(self)
+   end
+   get events()
+      zmq::zsocket_events(self)
+   end
+   get last_endpoint()
+      zmq::zsocket_last_endpoint(self)
+   end
+
+   set sndhwm(sndhwm)
+      zmq::zsocket_set_sndhwm(self, sndhwm)
+   end
+   set rcvhwm(rcvhwm)
+      zmq::zsocket_set_rcvhwm(self, rcvhwm)
+   end
+   set affinity(affinity)
+      zmq::zsocket_set_affinity(self, affinity)
+   end
+   set subscribe(subscribe)
+      zmq::zsocket_set_subscribe(self, subscribe)
+   end
+   set unsubscribe(unsubscribe)
+      zmq::zsocket_set_unsubscribe(self, unsubscribe)
+   end
+   set identity(identity)
+      zmq::zsocket_set_identity(self, identity)
+   end
+   set rate(rate)
+      zmq::zsocket_set_rate(self, rate)
+   end
+   set recovery_ivl(recovery_ivl)
+      zmq::zsocket_set_recovery_ivl(self, recovery_ivl)
+   end
+   set sndbuf(sndbuf)
+      zmq::zsocket_set_sndbuf(self, sndbuf)
+   end
+   set rcvbuf(rcvbuf)
+      zmq::zsocket_set_rcvbuf(self, rcvbuf)
+   end
+   set linger(linger)
+      zmq::zsocket_set_linger(self, linger)
+   end
+   set reconnect_ivl(reconnect_ivl)
+      zmq::zsocket_set_reconnect_ivl(self, reconnect_ivl)
+   end
+   set reconnect_ivl_max(reconnect_ivl_max)
+      zmq::zsocket_set_reconnect_ivl_max(self, reconnect_ivl_max)
+   end
+   set backlog(backlog)
+      zmq::zsocket_set_backlog(self, backlog)
+   end
+   set maxmsgsize(maxmsgsize)
+      zmq::zsocket_set_maxmsgsize(self, maxmsgsize)
+   end
+   set multicast_hops(multicast_hops)
+      zmq::zsocket_set_multicast_hops(self, multicast_hops)
+   end
+   set rcvtimeo(rcvtimeo)
+      zmq::zsocket_set_rcvtimeo(self, rcvtimeo)
+   end
+   set sndtimeo(sndtimeo)
+      zmq::zsocket_set_rcvtimeo(self, sndtimeo)
+   end
+   set ipv4only(ipv4only)
+      zmq::zsocket_set_ipv4only(self, ipv4only)
+   end
+   set delay_attach_on_connect(delay_attach_on_connect)
+      zmq::zsocket_set_delay_attach_on_connect(self, delay_attach_on_connect)
+   end
+   set router_mandatory(router_mandatory)
+      zmq::zsocket_set_router_mandatory(self, router_mandatory)
+   end
+   set router_raw(router_raw)
+      zmq::zsocket_set_router_raw(self, router_raw)
+   end
+   set xpub_verbose(xpub_verbose)
+      zmq::zsocket_set_xpub_verbose(self, xpub_verbose)
+   end
+   set hwm(hwm)
+      zmq::zsocket_set_hwm(self, hwm)
+   end
+end
+
+class ZMQMsg
+   include CType 'zmsg_t'
+
+   static __apply(self)
+      msg = zmq::zmsg_new()
+      ffi::gc(msg, self.__members__.destroy)
+      return msg
+   end
+
+   zmsg_send_p    = ffi::new('zmsg_t*[1]')
+   zmsg_destroy_p = ffi::new('zmsg_t*[1]')
+
+   send(socket)
+      zmsg_send_p[0] = self
+      zmq::zmsg_send(zmsg_send_p, socket)
+   end
+
+   recv(socket)
+      zmq::zmsg_recv(socket)
+   end
+
+   destroy()
+      zmsg_destroy_p[0] = self
+      zmq::zmsg_destroy(zmsg_destroy_p)
+   end
+
+   get size()
+      zmq::zmsg_size(self)
+   end
+   get content_size()
+      zmq::zmsg_content_size(self)
+   end
+   push(frame)
+      zmq::zmsg_push(self, frame)
+   end
+   pop()
+      zmq::zmsg_pop(self)
+   end
+   add(frame)
+      zmq::zmsg_add(self, frame)
+   end
+   pushmem(src)
+      zmq::zmsg_pushmem(self, src, #src)
+   end
+   addmem(src)
+      zmq::zmsg_addmem(self, src, #src)
+   end
+   pushstr(str)
+      zmq::zmsg_pushstr(self, str)
+   end
+   addstr(str)
+      zmq::zmsg_addstr(self, str)
+   end
+   popstr()
+      zmq::zmsg_popstr(self)
+   end
+   wrap(frame)
+      zmq::zmsg_wrap(self, frame)
+   end
+   unwrap()
+      zmq::zmsg_unwrap(self)
+   end
+   remove(frame)
+      zmq::zmsg_remove(self, frame)
+   end
+   get first()
+      zmq::zmsg_first(self)
+   end
+   get next()
+      zmq::zmsg_next(self)
+   end
+   get last()
+      zmq::zmsg_last(self)
+   end
+   save(file)
+      zmq::zmsg_save(self, file)
+   end
+   load(file)
+      zmq::zmsg_load(self, file)
+   end
+   encode(buffer)
+      zmq::zmsg_encode(self, buffer)
+   end
+   decode(buffer, buffer_size)
+      zmq::zmsg_decode(self, buffer, buffer_size)
+   end
+   dup()
+      zmq::zmsg_dup(self)
+   end
+   dump()
+      zmq::zmsg_dump(self)
+   end
+end
+
+module ZMQClock
+   sleep(msecs)
+      zmq::zclock_sleep(msecs)
+   end
+   time()
+      zmq::zclock_time()
+   end
+   log(fmt, ...)
+      zmq::zclock_log(fmt, ...)
+   end
+end
+
+class ZMQPollItem
+   include CType 'zmq_pollitem_t'
+   static __apply(self, socket, fd, events)
+      return ffi::new 'zmq_pollitem_t', {
+         socket = socket, fd = fd, events = events
+      }
+   end
+end
+
+export ZMQ, ZSOCKET, ZFRAME
+export ZMQCtx, ZMQSocket, ZMQMsg, ZMQPollItem

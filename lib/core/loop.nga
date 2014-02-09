@@ -1,0 +1,268 @@
+import Queue from "core/queue.nga"
+import ZMQSocket, ZMQPollItem from "core/zmq.nga"
+
+local ffi = require('ffi')
+local zmq = require('core/czmq_h.nga')
+local C   = ffi.C
+
+function strerror(errno)
+   return ffi::string(C::strerror(errno))
+end
+
+
+class Timer
+   self(delay, times = 0, react, data)
+      self.delay = delay
+      self.times = times
+      self.react = react
+      self.data  = data
+      self.when  = -1
+   end
+   start(loop = IOLoop)
+      loop.add_timer(self)
+   end
+   stop(loop = IOLoop)
+      loop.del_timer(self)
+   end
+end
+
+class Idle
+   self(react)
+      self.react = react
+   end
+   start(loop = IOLoop)
+      loop.add_idle(self)
+   end
+   stop(loop = IOLoop)
+      loop.del_idle(self)
+   end
+end
+
+class Poller
+   self(fd, events, react)
+      self.fd     = fd
+      self.react  = react
+      self.events = events
+   end
+   start(loop = IOLoop)
+      loop.add_poller(self)
+   end
+   stop(loop = IOLoop)
+      loop.del_poller(self)
+   end
+   modify(events, loop = IOLoop)
+      if typeof events == 'string' then
+         evbits = 0
+         if events.find 'r' then
+            evbits |= C.ZMQ_POLLIN
+         end
+         if events.find 'w' then
+            evbits |= C.ZMQ_POLLOUT
+         end
+         if events.find 'e' then
+            evbits |= C.ZMQ_POLLERR
+         end
+         events = evbits
+      end
+      if events != self.events then
+         self.events = events
+         self.dirty  = true
+      end
+   end
+end
+
+module IOLoop
+
+   timers  = Queue()
+   idles   = Queue()
+   pollers = Queue()
+
+   poll_max = 128
+   poll_set = ffi::new('zmq_pollitem_t[?]', 128)
+   poll_dur = -1
+
+   timer(delay, times = 0, react, data)
+      return Timer(delay, times, react, data)
+   end
+   add_timer(timer)
+      if not timer.queued then
+         timer.queued = true
+         timers.enqueue(timer)
+      end
+      timer.active = true
+   end
+   del_timer(timer)
+      timer.active = false
+   end
+
+   idle(react)
+      return Idle(react)
+   end
+   add_idle(idle)
+      if not idle.queued then
+         idle.queued = true
+         idles.enqueue(idle)
+      end
+      idle.active = true
+   end
+   del_idle(idle)
+      idle.active = false
+   end
+
+   poller(fd, events, react)
+      return Poller(fd, events, react)
+   end
+   add_poller(poller)
+      if not poller.queued then
+         poller.queued = true
+         pollers.enqueue(poller)
+         if pollers.count() > poll_max then
+            poll_max *= 2
+            poll_set = nil
+         end
+      end
+      poller.active = true
+   end
+   del_poller(poller)
+      poller.active = false
+   end
+
+   function gettime()
+      return tonumber(zmq::zclock_time())
+   end
+
+    _running = false
+
+   run_init()
+      _running = true
+      tloop = gettime()
+      for _, timer in timers do
+         timer.when = timer.delay + tloop
+      end
+   end
+   
+   run()
+      self.run_init()
+      again = true
+      while _running and again do
+         again = self.run_once()
+      end
+      if again and not _running then
+         -- interrupted
+         return again
+      end
+   end
+
+   stop()
+      _running = false
+   end
+
+   running()
+      return _running
+   end
+
+   count()
+      return timers.count() + pollers.count()
+   end
+
+   run_once()
+      if C.zctx_interrupted != 0 then
+         self.stop()
+         return self.count() > 0
+      end
+
+      -- calculate timers
+      tloop = gettime()
+      tnext = tloop + 3600 * 1000
+      timers.each (timer) =>
+         if timer.when == -1 then
+            timer.when = timer.delay + tloop
+         end
+         if tnext > timer.when then
+            tnext = timer.when
+         end
+         if not timer.active then
+            timer.queued = false
+            return false
+         end
+      end
+
+      poll_dur = tnext - tloop
+      if poll_dur < 0 then
+         poll_dur = 0
+      end
+
+      -- check poll set
+      if poll_set == nil then
+         poll_set = ffi::new("zmq_pollitem_t[?]", poll_max)
+      end
+
+      i = 0
+      pollers.each (poller) =>
+         if poller.active then
+            fd = poller.fd
+            if fd is ZMQSocket then
+               poll_set[i].socket = fd
+            else
+               poll_set[i].fd = fd
+            end
+            poll_set[i].events = poller.events
+            i += 1
+         else
+            poller.queued = false
+            return false
+         end
+      end
+
+      if self.count() == 0 then
+         -- nothing to do
+         if idles.count() > 0 then
+            idles.each (idle) =>
+               idle.react(self)
+               if not idle.active then
+                  idle.queued = false
+                  return false
+               end
+            end
+         end
+         return self.count() > 0
+      end
+
+      -- poll
+      rv = C::zmq_poll(poll_set, pollers.count(), poll_dur)
+
+      -- enqueue expired timers
+      tloop = gettime()
+      timers.each (timer) =>
+         if timer.when != -1 and tloop >= timer.when then
+            timer.times -= 1
+            if timer.times == 0 then
+               timer.active = false
+            end
+            timer.when = timer.delay + tloop
+            timer.react()
+            tloop = gettime()
+         end
+      end
+
+      -- enqueue poll handlers
+      if rv > 0 then
+         i = 0
+         pfds = poll_set -- a handler might modify this
+         pollers.each (poller) =>
+            if pfds[i].revents > 0 then
+               poller.react(pfds[i].revents)
+            end
+            i += 1
+         end
+      elseif rv < 0 then
+         errno = ffi::errno()
+         throw strerror(errno)
+      end
+
+      return self.count() > 0
+   end
+end
+
+export IOLoop, Timer, Idle, Poller
+

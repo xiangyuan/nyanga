@@ -1,0 +1,249 @@
+
+import Queue from 'core/queue.nga'
+
+module Scheduler
+   fibers = Queue()
+   idles  = Queue()
+
+   ready(coro)
+      if coro.is_idle then
+         self.add_idle(coro)
+      else
+         self.add_fiber(coro)
+      end
+   end
+
+   fiber(func)
+      return coroutine::create(func)
+   end
+   add_fiber(coro, arg)
+      if not coro.queued then
+         fibers.enqueue(coro)
+         coro.queued = true
+      end
+      coro.active = true
+   end
+   del_fiber(coro)
+      coro.active = false
+   end
+
+   idle(func)
+      coro = coroutine::create(func)
+      coro.is_idle = true
+      return coro
+   end
+
+   add_idle(idle)
+      if not idle.queued then
+         idles.enqueue(idle)
+         idle.queued = true
+      end
+      idle.active = true
+   end
+   del_idle(idle)
+      idle.active = false
+   end
+
+   _running = false
+
+   run()
+      _running = true
+      again = true
+      while again and _running do
+         again = self.run_once()
+      end
+   end
+
+   stop()
+      _running = false
+   end
+
+   run_once()
+      if fibers.count() == 0 then
+         idles.each (idle) =>
+            if idle.active then
+               ok, rv = idle.resume()
+               if idle.status() == "dead" then
+                  idle.finish(rv)
+               end
+            else
+               idle.queued = false
+               return false
+            end
+         end
+      end
+      fibers.each (fiber) =>
+         if fiber.active then
+            ok, rv = fiber.resume()
+            -- XXX: handle errors if not ok
+            if fiber.status() == "dead" then
+               fiber.finish(rv)
+            end
+         else
+            fiber.queued = false
+            return false
+         end
+      end
+      return fibers.count() > 0 or idles.count() > 0
+   end
+end
+
+class Fiber
+   properties = { } as { __mode = 'k' }
+
+   static __apply(_, func, ...args)
+      self = coroutine::create(func, ...args)
+      self._complete = [ ]
+      return self
+   end
+
+   static __setindex(self, k, v)
+      props = properties[self]
+      if props == nil then
+         props = { }
+         properties[self] = props
+      end
+      props[k] = v
+   end
+   static __getindex(self, k)
+      props = properties[self]
+      if props == nil then
+         return nil
+      end
+      return props[k]
+   end
+
+   static current()
+      return coroutine::running()
+   end
+
+   static schedule()
+      Scheduler.run()
+   end
+
+   resume(...)
+      return assert(coroutine::resume(self, ...))
+   end
+
+   ready(...)
+      Scheduler.ready(self)
+   end
+
+   static rouse()
+      curr = Fiber.current()
+      if not curr._rouse_cb then
+         function curr::_rouse_cb()
+            curr.ready()
+         end
+      end
+      return curr._rouse_cb
+   end
+   static await()
+      curr = Fiber.current()
+      curr.pause()
+      yield
+   end
+
+   static idle(_, ...)
+      return Scheduler.idle(...)
+   end
+
+   static pause()
+      Fiber.current().pause()
+   end
+   pause()
+      self.active = false
+   end
+   cancel()
+      Scheduler.del_fiber(self)
+   end
+
+   join()
+      curr, main = Fiber.current()
+      if not main then
+         self.on_complete (_, ...) =>
+            curr.ready()
+         end
+         yield
+         return self.retv
+      else
+         if self.status() == "suspended" then
+            Scheduler.run()
+         end
+         return self.retv
+      end
+   end
+
+   finish(...)
+      self.active = false
+      self.retv = ...
+      if self._complete then
+         for _, on_complete in self._complete do
+            on_complete(self, ...)
+         end
+      end
+   end
+ 
+   on_complete(func)
+      self._complete.push(func)
+   end
+
+   status()
+      return coroutine::status(self)
+   end
+
+   debug::setmetatable(coroutine::create(function() end), self)
+end
+
+class Semaphore
+   self(count = 1)
+      self.count = count
+      self.queue = Queue()
+   end
+   up()
+      self.count += 1
+      if self.count > 0 and self.queue.count() > 0 then
+         wait = self.queue.dequeue()
+         wait.ready()
+      end
+   end
+   down()
+      if self.count > 0 then
+         self.count -= 1
+         return
+      end
+      curr = Fiber.current()
+      self.queue.enqueue(curr)
+      while self.count < 1 do
+         curr.pause()
+         yield
+      end
+      self.count -= 1
+   end
+   try_down()
+      return self.count > 0
+   end
+end
+
+class Channel
+   self(size = math.huge)
+      self.wput = Semaphore(size)
+      self.wget = Semaphore(0)
+      self.data = Queue()
+   end
+   post(data)
+      self.wput.down()
+      self.data.enqueue(data)
+      self.wget.up()
+   end
+   recv()
+      self.wget.down()
+      if self.wput.queue.count() > 0 then
+         self.wput.up()
+      end
+      return self.data.dequeue()
+   end
+end
+
+export Fiber, Channel, Semaphore, Scheduler
+
