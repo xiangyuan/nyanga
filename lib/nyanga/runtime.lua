@@ -68,6 +68,19 @@ local function traceback(mesg)
    print(table.concat(buf, "\n"))
 end
 
+local Function = { }
+Function.__tostring = function(self)
+   local info = debug.getinfo(self, 'un')
+   local nparams = info.nparams
+   local params = {}
+   for i = 1, nparams do
+      params[i] = debug.getlocal(self, i)
+   end
+   if info.isvararg then params[#params+1] = '...' end
+   return string.format('function(%s): %p', table.concat(params,', '), self)
+end
+debug.setmetatable(function() end, Function)
+
 local function loader(filename)
    if string.match(filename, "%.nga") then
       local namelist = { }
@@ -151,7 +164,15 @@ local function module(name, body)
    return module
 end
 
-Class = { }
+local Meta = { }
+Meta.__index = Meta
+Meta.__members__ = { }
+Meta.__getters__ = { }
+Meta.__setters__ = { }
+Meta.__getindex = rawget
+Meta.__setindex = rawset
+
+Class = setmetatable({ }, Meta)
 function Class.__call(class, ...)
    local obj
    if class.__apply then
@@ -168,6 +189,10 @@ end
 function Class.__tostring(class)
    return string.format("Class<%s>", class.__name)
 end
+function Class.__index(class, key)
+   return class.__members__[key]
+end
+
 
 local special = {
    __add__ = { mmname = '__add', method = function(a, b) return a:__add__(b) end };
@@ -186,7 +211,39 @@ local special = {
    __call__   = { mmname = '__call',   method = function(self, ...) return self:__call__(...) end };
 }
 
-local function class(name, base, body)
+local function class(name, body, ...)
+   --[[
+   local cmeta = setmetatable({ __metatable = Class }, Meta)
+   function cmeta.__call(class, ...)
+      local obj
+      if class.__apply then
+         obj = class:__apply(...)
+      else
+         obj = { }
+         setmetatable(obj, class)
+         if class.__members__.self then
+            class.__members__.self(obj, ...)
+         end
+      end
+      return obj
+   end
+   function cmeta.__tostring(class)
+      return string.format("Class<%s>", class.__name)
+   end
+   function cmeta.__index(class, key)
+      return class.__members__[key]
+   end
+   cmeta.__metatable = Class
+   --]]
+
+   local base
+   if select('#', ...) > 0 then
+      if select(1, ...) == nil then
+         error("attempt to extend a 'nil' value", 2)
+      end
+      base = ...
+   end
+
    local class = { __name = name, __base = base }
    local __getters__ = { }
    local __setters__ = { }
@@ -229,7 +286,10 @@ local function class(name, base, body)
          return string.format('<%s>:%p', name, o)
       end
    end
+
+   --body(setmetatable(class, cmeta), base and base.__members__ or nil)
    body(setmetatable(class, Class), base and base.__members__ or nil)
+
    for name, delg in pairs(special) do
       if __members__[name] then
          class[delg.mmname] = delg.method
@@ -245,6 +305,12 @@ local function class(name, base, body)
 end
 
 local function include(into, ...)
+   for i=1, select('#', ...) do
+      if select(i, ...) == nil then
+         error("attempt to include a nil value", 2)
+      end
+   end
+
    local args = { ... }
    for i=1, #args do
       local from = args[i] 
@@ -412,7 +478,7 @@ local function try(try, catch, finally)
    return rv
 end
 
-local String = class("String", nil, function(self, super)
+local String = class("String", function(self, super)
    local orig_meta = getmetatable("")
    for k, v in pairs(orig_meta.__index) do
       self.__members__[k] = v
@@ -448,7 +514,7 @@ local String = class("String", nil, function(self, super)
 end)
 debug.setmetatable("", String)
 
-local Error = class("Error", nil, function(self, super)
+local Error = class("Error", function(self, super)
    self.__members__.self = function(self, mesg)
       self.message = mesg
       self.trace = debug.traceback(mesg, 2)
@@ -581,7 +647,7 @@ local function extract(patt, subj)
    return expand(patt:bind(subj))
 end
 
-local TablePattern = class("TablePattern", nil, function(self)
+local TablePattern = class("TablePattern", function(self)
    self.__apply = function(self, keys, desc, meta)
       return setmetatable({
          keys = keys;
@@ -642,7 +708,7 @@ local TablePattern = class("TablePattern", nil, function(self)
    end
 end)
 
-local ArrayPattern = class("ArrayPattern", nil, function(self)
+local ArrayPattern = class("ArrayPattern", function(self)
    self.__apply = function(self, ...)
       return setmetatable({
          length = select('#', ...), [0] = select(1, ...), select(2, ...)
@@ -688,7 +754,7 @@ local ArrayPattern = class("ArrayPattern", nil, function(self)
 
 end)
 
-local ApplyPattern = class("ApplyPattern", nil, function(self)
+local ApplyPattern = class("ApplyPattern", function(self)
    self.__apply = function(self, base, ...)
       return setmetatable({
          base = base,
@@ -711,8 +777,10 @@ local ApplyPattern = class("ApplyPattern", nil, function(self)
       local si, ss, sc
       if self.base.__ipairs then
          si, ss, sc = self.base.__ipairs(subj)
-      else
+      elseif type(subj) == 'table' then
          si, ss, sc = ipairs(subj)
+      else
+         error("cannot bind "..tostring(subj).." to: "..tostring(self.base))
       end
       return function(self)
          while i <= self.narg do
@@ -750,8 +818,8 @@ end
 
 local function grammar(name, patt)
    local self = { __name = name, __patt = patt }
-   self.__unapply = function(subj)
-      return { self.__patt:match(subj) }
+   self.__ipairs = function(subj)
+      return ipairs{ self.__patt:match(subj) }
    end
    return setmetatable(self, Grammar)
 end
@@ -865,7 +933,7 @@ local function runopt(args)
    end
    local main = compiler.compile(code, name, opts)
    if not opts['-b'] then
-      main(unpack(args))
+      main(name, unpack(args))
    end
 end
 
@@ -880,8 +948,6 @@ local predef = {
    import = import;
    yield  = yield;
    throw  = error;
-   trace  = trace;
-   traceback = traceback;
    grammar = grammar;
    __rule__ = rule;
    include  = include;

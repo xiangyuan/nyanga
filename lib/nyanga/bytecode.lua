@@ -346,8 +346,8 @@ function Proto.new(flags, outer)
       varinfo = { };
       currline  = 1;
       lastline  = 1;
-      firstline = 0;
-      numlines  = 1;
+      firstline = math.huge;
+      numlines  = 0;
       framesize = 0;
    }, Proto)
 end
@@ -385,6 +385,10 @@ function Proto.__index:leave(base)
    self.freereg = self:nactvars()
 end
 function Proto.__index:close()
+   if self.firstline == math.huge then
+      -- should probably error
+      self.firstline = 1
+   end
    self.numlines = self.lastline - self.firstline
    if #self.code > 0 then
       for i=1, #self.scope.actvars do
@@ -445,7 +449,7 @@ function Proto.__index:const(val)
    return self.kcache[val].idx
 end
 function Proto.__index:line(ln)
-   if self.firstline == 0 then
+   if ln < self.firstline then
       self.firstline = ln
    end
    if ln > self.lastline then

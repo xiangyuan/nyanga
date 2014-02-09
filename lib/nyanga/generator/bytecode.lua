@@ -189,7 +189,7 @@ end
 function match:Vararg(node, base, want)
    assert(base, "Vararg needs a base")
    self.ctx:op_varg(base, want)
-   return MULTIRES
+   return want == MULTIRES and MULTIRES or base
 end
 function match:BlockStatement(node)
    for i=1, #node.body do
@@ -210,8 +210,8 @@ function match:IfStatement(node, nest, exit)
       local treg = self.ctx:nextreg()
       local o = test.operator
       if test.kind == 'BinaryExpression' and cmpop[o] then
-         local a = self:emit(test.left, treg)
-         local b = self:emit(test.right, self.ctx:nextreg())
+         local a = self:emit(test.left, treg, 1)
+         local b = self:emit(test.right, self.ctx:nextreg(), 1)
          self.ctx:op_comp(cmpop[o], a, b, altl)
       else
          self:emit(test, treg, 1)
@@ -326,7 +326,7 @@ end
 function match:LocalDeclaration(node)
    local base = self.ctx:nextreg(#node.names)
 
-   local want = #node.expressions
+   local want = #node.names
    for i=1, #node.expressions do
       local w = want - (i - 1)
       self:emit(node.expressions[i], base + (i - 1), w)
@@ -507,8 +507,8 @@ function match:WhileStatement(node)
    local test = node.test
    local o = test.operator
    if test.kind == 'BinaryExpression' and cmpop[o] then
-      local a = self:emit(test.left, treg)
-      local b = self:emit(test.right, self.ctx:nextreg())
+      local a = self:emit(test.left, treg, 1)
+      local b = self:emit(test.right, self.ctx:nextreg(), 1)
       self.ctx:op_comp(cmpop[o], a, b)
       self.ctx.freereg = free
       self.ctx:jump(exit)
@@ -547,8 +547,8 @@ function match:RepeatStatement(node)
    local test = node.test
    if test.kind == 'BinaryExpression' and cmpop[o] then
       local o = test.operator
-      local a = self:emit(test.left, treg)
-      local b = self:emit(test.right, self.ctx:nextreg())
+      local a = self:emit(test.left, treg, 1)
+      local b = self:emit(test.right, self.ctx:nextreg(), 1)
       self.ctx.freereg = free
       self.ctx:op_comp(cmpop[o], a, b)
    else
@@ -682,7 +682,7 @@ function match:Chunk(tree, name)
 end
 
 local function generate(tree, name)
-   local self = { line = 0 }
+   local self = { line = 1 }
    self.main = bc.Proto.new(bc.Proto.VARARG)
    self.dump = bc.Dump.new(self.main, name)
    self.ctx  = self.main

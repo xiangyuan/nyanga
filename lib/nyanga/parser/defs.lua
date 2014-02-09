@@ -64,7 +64,7 @@ function defs.escape(s)
    error("invalid escape sequence")
 end
 function defs.chunk(body)
-   line = 0
+   line = 1
    return { type = "Chunk", body = body, line = line }
 end
 function defs.stmt(pos, node)
@@ -261,6 +261,7 @@ function defs.funcDecl(path, head, body)
    decl.params   = params
    decl.defaults = defaults
    decl.rest     = rest
+   decl.line     = line
 
    return decl
 end
@@ -285,10 +286,7 @@ function defs.coroProp(...)
    return prop
 end
 function defs.blockStmt(body)
-   return {
-      type = "BlockStatement",
-      body = body, line = line
-   }
+   return { type = "BlockStatement", body = body, line = line }
 end
 function defs.givenStmt(disc, cases, default)
    if default then

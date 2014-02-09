@@ -14,7 +14,7 @@ local patt = [=[
       s (<main_stmt> (<sep> s <main_stmt>)* <sep>?)? s (!. / %1 => error)
    |} -> chunk
 
-   close    <- ']' =eq ']' / <nl> / . <close>
+   close    <- ']' =eq ']' / (<nl> / .) <close>
 
    lcomment <- "--" (!<nl> .)* <nl>
    bcomment <- ('--[' {:eq: '='* :} '[' <close>)
@@ -102,7 +102,6 @@ local patt = [=[
       / <for_stmt>
       / <for_in_stmt>
       / <do_stmt>
-      / <expr_stmt>
       / <decl_stmt>
       / <return_stmt>
       / <try_stmt>
@@ -111,6 +110,7 @@ local patt = [=[
       / <continue_stmt>
       / <yield_stmt>
       / <given_stmt>
+      / <expr_stmt>
    )) -> stmt
 
    stmt_list <- {|
@@ -428,7 +428,7 @@ local patt = [=[
       / s { "::" } s (<ident> / %1 => error)
       / hs { "[" } s <expr> s ("]" / %1 => error)
       / { "(" } s {| <expr_list>? |} s (")" / %1 => error)
-      / {~ (hs &['"[{] / HS) -> "(" ~} {| !<binop> <expr_list> |}
+      / {~ (hs &['"[{] / HS) -> "(" ~} {| <spread_expr> / !<binop> <expr_list> |}
    |}
 
    member_expr <- {|

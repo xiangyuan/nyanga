@@ -14,7 +14,6 @@ function Scope.new(outer)
       outer   = outer;
       entries = { };
       hoist   = { };
-      level   = outer and outer.level + 1 or 1;
    }
    return setmetatable(self, Scope)
 end
@@ -53,15 +52,21 @@ function Context:abort(mesg, line)
       os.exit(1)
    end
 end
-function Context:enter(is_func)
+function Context:enter(type)
    local topline
-   if is_func then
+   if type == "function" or type == "module" then
       topline = self.line
    else
       topline = self.scope.topline
    end
+   self.scope.type = type
    self.scope = Scope.new(self.scope)
    self.scope.topline = topline
+   if type == "function" then
+      self.scope.level = (self.scope.outer.level or 0) + 1
+   else
+      self.scope.level = self.scope.outer.level or 1
+   end
 end
 function Context:leave(block)
    block = block or self.scope.hoist
@@ -127,7 +132,7 @@ end
 
 local match = { }
 
-local globals = { 'Array', 'Error', 'Class', 'Module', 'trace' }
+local globals = { 'Array', 'Error', 'Class', 'Module' }
 for k,v in pairs(_G) do
    globals[#globals + 1] = k
 end
@@ -146,7 +151,7 @@ function match:Chunk(node, opts)
       self.ctx:define(globals[i])
    end
 
-   self.ctx:enter(true)
+   self.ctx:enter("module")
 
    -- import predefs from runtime
    self.ctx:hoist(B.localDeclaration(
@@ -707,7 +712,7 @@ function match:FunctionDeclaration(node)
    local prelude = { }
    local vararg  = false
 
-   self.ctx:enter(true)
+   self.ctx:enter("function")
 
    for i=1, #node.params do
       self.ctx:define(node.params[i].name)
@@ -779,7 +784,7 @@ function match:ModuleDeclaration(node)
    local name = self:get(node.id)
 
    self.ctx:hoist(B.localDeclaration({ name }, { }))
-   self.ctx:enter(true)
+   self.ctx:enter("module")
    self.ctx:define('self')
    local body = self:get(node.body)
    self.ctx:unhoist(body)
@@ -801,10 +806,10 @@ function match:ClassDeclaration(node)
    self.ctx:define(node.id.name, { line = self.ctx.scope.topline })
 
    local name = self:get(node.id)
-   local base = node.base and self:get(node.base) or B.literal(nil)
+   local base = node.base and self:get(node.base) or nil
 
    self.ctx:hoist(B.localDeclaration({ name }, { }))
-   self.ctx:enter(true)
+   self.ctx:enter("module")
 
    self.ctx:define('self')
    self.ctx:define('super')
@@ -814,11 +819,12 @@ function match:ClassDeclaration(node)
 
    local init = B.callExpression(
       B.identifier('class'), {
-         B.literal(node.id.name), base,
+         B.literal(node.id.name),
          B.functionExpression(
             { B.identifier('self'), B.identifier('super') },
             B.blockStatement(body)
-         )
+         ),
+         base
       }
    )
    return B.assignmentExpression({ name }, { init })
@@ -832,19 +838,19 @@ function match:ClassBody(node)
          local prop = node.body[i]
          local desc = properties[prop.key.name] or { }
          if prop.kind == 'get' then
+            if prop.static then
+               self.ctx:abort("static getters NYI")
+            end
             desc.get = self:get(prop)
          elseif prop.kind == 'set' then
+            if prop.static then
+               self.ctx:abort("static setters NYI")
+            end
             desc.set = self:get(prop)
          else
             desc.value = self:get(prop)
          end
-         if desc.static then
-            if desc.static.value ~= prop.static then
-               error("property "..prop.key.name.." already defined as static")
-            end
-         end
 
-         desc.static = B.literal(prop.static)
          properties[prop.key.name] = desc
 
          if desc.get then
