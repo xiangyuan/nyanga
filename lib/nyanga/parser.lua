@@ -149,7 +149,9 @@ local patt = [=[
    ) -> catchClause
 
    decl_stmt <- (
-        <local_decl>
+        <local_coro>
+      / <local_func>
+      / <local_decl>
       / <coro_decl>
       / <func_decl>
       / <class_decl>
@@ -158,10 +160,19 @@ local patt = [=[
    )
 
    local_decl <- (
-      "local" <idsafe> s {|
-         <decl_left> (s "," s <decl_left>)*
-      |} (s "=" s {| <expr_list> |})?
+      "local" <idsafe> s {| <decl_left> (s "," s <decl_left>)* |}
+      (s "=" s {| <expr_list> |})?
    ) -> localDecl
+
+   local_func <- (
+      "local" <idsafe> s
+      "function" <idsafe> s <ident> s <func_head> s <func_body>
+   ) -> localFuncDecl
+
+   local_coro <- (
+      "local" <idsafe> s
+      "function*" <idsafe> s <ident> s <func_head> s <func_body>
+   ) -> localCoroDecl
 
    bind_left <- (
       <array_patt> / <table_patt> / <apply_patt> / <member_expr>

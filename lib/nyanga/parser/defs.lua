@@ -265,6 +265,17 @@ function defs.funcDecl(path, head, body)
 
    return decl
 end
+function defs.localFuncDecl(name, head, body)
+   local decl = defs.funcDecl({ name }, head, body)
+   decl.islocal = true
+   return decl
+end
+function defs.localCoroDecl(name, head, body)
+   local decl = defs.funcDecl({ name }, head, body)
+   decl.islocal = true
+   decl.generator = true
+   return decl
+end
 function defs.funcExpr(head, body)
    local decl = defs.funcDecl(nil, head, body)
    decl.expression = true
@@ -408,7 +419,7 @@ function defs.updateExpr(left, op, right)
    return { type = "UpdateExpression", left = left, operator = op, right = right, line = line }
 end
 function defs.localDecl(lhs, rhs)
-   return { type = "VariableDeclaration", names = lhs, inits = rhs, line = line }
+   return { type = "LocalDeclaration", names = lhs, inits = rhs, line = line }
 end
 function defs.doStmt(block)
    return { type = "DoStatement", body = block, line = line }

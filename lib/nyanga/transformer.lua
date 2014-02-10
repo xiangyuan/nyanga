@@ -221,7 +221,7 @@ function match:Identifier(node)
    end
    return B.identifier(node.name)
 end
-function match:VariableDeclaration(node)
+function match:LocalDeclaration(node)
    local decl = { }
    local simple = true
    for i=1, #node.names do
@@ -703,10 +703,13 @@ end
 function match:FunctionDeclaration(node)
    local name
    if not node.expression then
-      if node.name.type == 'Identifier' then
-         self.ctx:define(node.name.name)
-      end
       name = self:get(node.name)
+      if node.name.type == 'Identifier' then
+         if not node.islocal then
+            self.ctx:define(node.name.name, { line = self.ctx.scope.topline })
+            self.ctx:hoist(B.localDeclaration({ name }, { }))
+         end
+      end
    end
 
    local params  = { }
@@ -767,7 +770,7 @@ function match:FunctionDeclaration(node)
    end
 
    local frag = { }
-   if node.name.type == 'Identifier' then
+   if node.islocal then
       frag[#frag + 1] = B.localDeclaration({ name }, { })
    end
    frag[#frag + 1] = B.assignmentExpression({ name }, { func });
@@ -1137,8 +1140,9 @@ function match:RegExp(node)
    )
 end
 function match:GrammarDeclaration(node)
-   self.ctx:define(node.id.name)
-   return B.localDeclaration(
+   self.ctx:define(node.id.name, { line = self.ctx.scope.topline })
+   self.ctx:hoist(B.localDeclaration({ self:get(node.id) }, { }))
+   return B.assignmentExpression(
       { self:get(node.id) }, {
          B.callExpression(
             B.identifier('grammar'),
