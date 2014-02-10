@@ -92,6 +92,7 @@ function Context:define(name, info)
          if u.from.level <= self.scope.level then
             self:abort(string.format("%q used before defined", u.name), u.line)
          else
+            -- XXX: scan up
             table.remove(self.undef, i)
          end
       end
@@ -1247,7 +1248,7 @@ end
 function match:PatternCaptConst(node)
    return B.callExpression(
       B.memberExpression(B.identifier('__rule__'), B.identifier('Cc')),
-      { self:get(node.pattern) }
+      { self:get(node.argument) }
    )
 end
 function match:PatternCaptGroup(node)
