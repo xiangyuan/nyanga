@@ -30,6 +30,8 @@ LDFLAGS+=-lstdc++ -Wl,--whole-archive -Wl,-E
 SOFLAGS+=-shared -fPIC
 endif
 
+LPEG := boot/lib/lpeg.so
+
 DEPS := ${BUILD}/deps/liblpeg.a \
 	${BUILD}/deps/libzmq.a \
 	${BUILD}/deps/libczmq.a \
@@ -67,7 +69,7 @@ dirs:
 	mkdir -p ${BUILD}/lang
 	mkdir -p ${BUILD}/core
 
-${BUILD}/nyanga: ${LJ} ${DEPS}
+${BUILD}/nyanga: ${LJ} ${LPEG} ${DEPS}
 	${CC} ${CFLAGS} -I${DEPDIR}/luajit/src -L${DEPDIR}/luajit/src -o ${BUILD}/nyanga src/nyanga.c ${DEPS} ${LDFLAGS}
 
 ${BUILD}/nyanga.so: ${BUILD}/deps/liblpeg.a ${BUILD}/lang.a ${BUILD}/core.a ${BUILD}/main.o
@@ -116,7 +118,6 @@ ${BUILD}/core/system.o:
 	${NGC} -n "nyanga.core.system" src/core/system.nga ${BUILD}/core/system.o
 
 ${BUILD}/deps/liblpeg.a: ${LPEG}
-	make -C ${DEPDIR}/lpeg ${LPEG_BUILD}
 	ar rcus ${BUILD}/deps/liblpeg.a ${DEPDIR}/lpeg/*.o
 
 ${BUILD}/deps/libczmq.a: ${BUILD}/deps/libzmq.a
@@ -136,6 +137,7 @@ ${LJ}:
 
 ${LPEG}:
 	make -C ${DEPDIR}/lpeg ${LPEG_BUILD}
+	cp ${DEPDIR}/lpeg/lpeg.so boot/lib/
 
 clean:
 	rm -rf ${BUILD}/core/*
@@ -157,7 +159,6 @@ bootstrap: ${LJ} ${LPEG}
 	mkdir -p boot/bin
 	mkdir -p boot/lib
 	mkdir -p boot/src/nyanga/lang
-	cp ${DEPDIR}/lpeg/lpeg.so	boot/lib/
 	${LJC} src/lang/re.lua          boot/src/nyanga/lang/re.raw
 	${LJC} src/lang/parser.lua      boot/src/nyanga/lang/parser.raw
 	${LJC} src/lang/tree.lua        boot/src/nyanga/lang/tree.raw
