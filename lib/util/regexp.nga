@@ -1,0 +1,54 @@
+
+class RegExp
+   local pcre = require('util.regexp.pcre')
+
+   self(source, flags)
+      flags = flags or ''
+      self.index = 0
+      self.input = ''
+      self.source  = source
+      local opts = 0
+      if string::find(flags, 'i') then
+         opts = opts + pcre.lib.PCRE_CASELESS
+         self.ignoreCase = true
+      end
+      if string::find(flags, 'm') then
+         opts = opts + pcre.lib.PCRE_MULTILINE
+         self.multiLine = true
+      end
+      self.pattern = assert(pcre::compile(source, opts))
+      if string::find(flags, 'g') then
+         self.global = true
+      end
+   end
+
+   exec(str)
+      if self.input != str then
+         self.input = str
+         self.index = 0
+      end
+      local result = pcre::execute(self.pattern, self.input, self.index)
+      if typeof result == 'table' then
+         self.index = self.index + #result[1] + 1
+         return result
+      elseif result == pcre.lib.PCRE_ERROR_NOMATCH then
+         return nil
+      else
+         error(result, 2)
+      end
+   end
+
+   test(str)
+      local result = pcre::execute(self.pattern, str)
+      if typeof result == 'table' then
+         return true
+      else
+         return false
+      end
+   end
+
+   toString()
+      return string::format('RegExp(%q)', tostring(self.source))
+   end
+end
+

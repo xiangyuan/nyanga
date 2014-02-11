@@ -37,6 +37,7 @@ function Writer:semicolon()
    local last = self.buffer[#self.buffer]
    if not string.match(last, '^%s*end%s*$')
       and string.sub(last, 1, 1) ~= '\n'
+      and string.sub(last, 1, 1) ~= ';'
       and string.sub(last, -2) ~= '::'
    then
       self:write(";")
@@ -108,6 +109,7 @@ function match:AssignmentExpression(node)
          self:write(", ")
       end
    end
+   self.writer:semicolon()
 end
 function match:LogicalExpression(node)
    self:render(node.left)

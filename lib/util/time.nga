@@ -1,0 +1,136 @@
+ffi = require "ffi"
+
+ffi::cdef "
+   typedef long time_t;
+   typedef unsigned long clock_t;
+
+   typedef struct TimeSpec {
+     time_t tv_sec;
+     long   tv_nsec;
+   } timespec_t;
+
+   typedef struct Date {
+     int tm_sec;	/* seconds after the minute [0-60] */
+     int tm_min;	/* minutes after the hour [0-59] */
+     int tm_hour;	/* hours since midnight [0-23] */
+     int tm_mday;	/* day of the month [1-31] */
+     int tm_mon;	/* months since January [0-11] */
+     int tm_year;	/* years since 1900 */
+     int tm_wday;	/* days since Sunday [0-6] */
+     int tm_yday;	/* days since January 1 [0-365] */
+     int tm_isdst;	/* Daylight Savings Time flag */
+     long tm_gmtoff;	/* offset from CUT in seconds */
+     char *tm_zone;	/* timezone abbreviation */
+   } tm_t;
+
+   typedef struct TimeVal {
+      long int  tv_sec;   /* seconds since Jan. 1, 1970 */
+      long int  tv_usec;  /* and microseconds */
+   } timeval_t;
+
+   typedef struct TimeZone {
+      int tz_minuteswest; /* of Greenwich */
+      int tz_dsttime;     /* type of dst correction to apply */
+   } timezone_t;
+
+   time_t time(time_t *tloc);
+   int gettimeofday(timeval_t *tp, timezone_t *tzp);
+   size_t strftime(char *, size_t, const char *, tm_t *);
+
+   char *asctime(tm_t *);
+   clock_t clock(void);
+   char *ctime(time_t *);
+   double difftime(time_t, time_t);
+   tm_t *getdate(const char *);
+   tm_t *gmtime(time_t *);
+   tm_t *localtime(time_t *);
+   tm_t *localtime_r(time_t *clock, tm_t *result);
+   time_t mktime(tm_t *);
+"
+
+class TimeVal
+   ctype = ffi::typeof('timeval_t')
+   static __apply(time = 0.0)
+      self = ctype()
+      if time then
+         integ, fract = math::modf(tonumber(time))
+         self.tv_sec  = integ
+         self.tv_usec = fract * 1000000
+      end
+      return self
+   end
+   get sec()
+      return self.tv_sec
+   end
+   get usec()
+      return self.tv_usec
+   end
+   toDate()
+      Date(self.sec)
+   end
+   ffi::metatype(ctype, self)
+end
+
+class TimeZone
+   ctype = ffi::typeof('timezone_t')
+   static __apply(...args)
+      return ctype(...args)
+   end
+   get minuteswest()
+      return self.tz_minuteswest
+   end
+   get dsttime()
+      return self.tz_dsttime
+   end
+   ffi::metatype(ctype, self)
+end
+
+class TimeSpec
+   ctype = ffi::typeof('timespec_t')
+   static __apply(...args)
+      return ctype(...args)
+   end
+   get sec()
+      return self.tv_sec
+   end
+   get nsec()
+      return self.tv_nsec
+   end
+   toDate()
+      return Date(self.sec)
+   end
+   ffi::metatype(ctype, self)
+end
+
+class Date
+   ctype = ffi::typeof('tm_t')
+
+   static getTimeOfDay()
+      tv = TimeVal()
+      tz = TimeZone()
+      ok = ffi.C::gettimeofday(tv, tz)
+      if ok == 0 then
+         return tv, tz
+      end
+   end
+
+   static __apply(time = ffi.C::time(ffi::new('time_t[1]')))
+      self = ctype()
+      if not ffi::istype('time_t*', time) then
+         temp = ffi::new('time_t[1]')
+         temp[0] = time
+         time = temp
+      end 
+      ffi.C::localtime_r(time, self)
+      return self
+   end
+
+   format(fmt, len = 256)
+      buf = ffi::new('char[?]', len)
+      ffi.C::strftime(buf, len, fmt, self)
+      return ffi::string(buf)
+   end
+
+   ffi::metatype(ctype, self)
+end
+

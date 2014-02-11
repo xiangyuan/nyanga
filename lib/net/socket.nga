@@ -1,0 +1,249 @@
+require("nyanga.core.ffi")
+
+ffi = require("ffi")
+C   = ffi.C
+
+import Poller    from "nyanga.core.loop"
+import Semaphore from "nyanga.core.fiber"
+
+function strerror(errno)
+   return ffi::string(C::strerror(errno))
+end
+
+class Socket
+
+   self(domain = C.AF_INET, type = C.SOCK_STREAM, proto = C.IPPROTO_TCP)
+      fd = C::socket(domain, type, proto)
+      if fd == -1 then
+         throw strerror(ffi::errno())
+      end
+      self.so_fd = fd
+   end
+
+   get fd()
+      return self.so_fd
+   end
+
+   get poller()
+      if not self._poller then
+         self._readable = Semaphore(0)
+         self._writable = Semaphore(0)
+         self._ioerrors = Semaphore(0)
+
+         self._poller = Poller self.so_fd, 0, (poll, evts) =>
+            if (evts & C.ZMQ_POLLERR) > 0 then
+               self._ioerrors.up()
+            end
+            if (evts & C.ZMQ_POLLIN) > 0 then
+               self._readable.up()
+            end
+            if (evts & C.ZMQ_POLLOUT) > 0 then
+               self._writable.up()
+            end
+         end
+      end
+      return self._poller
+   end
+
+   get flags()
+      flags = ffi.C::fcntl(self.so_fd, C.F_GETFL)
+      if flags < 0 then
+         throw strerror(ffi::errno())
+      end
+      return flags
+   end
+
+   set flags(val)
+      stat = C::fcntl(self.so_fd, C.F_SETFL, val)
+      if stat == -1 then
+         throw strerror(ffi::errno())
+      end
+      return stat
+   end
+
+   setoption(key, val)
+      len = ffi::sizeof(val)
+      val = ffi::cast('char *', ffi::new('int[1]', val))
+      C::setsockopt(self.so_fd, C.SOL_SOCKET, key, val, len)
+   end
+
+   reuseaddr(val)
+      if val then
+         v = ffi::cast('char *', ffi::new('int[1]', 1))
+         r = C::setsockopt(
+            self.so_fd, C.SOL_SOCKET, C.SO_REUSEADDR, v, ffi::sizeof(v)
+         )
+         if r == -1 then
+            throw strerror(ffi::errno())
+         end
+         return r
+      else
+         v = ffi::cast('char *', ffi::new('int[1]', 0))
+         r = C::setsockopt(
+            self.so_fd, C.SOL_SOCKET, C.SO_REUSEADDR, v, ffi::sizeof(v)
+         )
+         if r == -1 then
+            throw strerror(ffi::errno())
+         end
+         return r
+      end
+   end
+
+   set nonblocking(val)
+      if val then
+         self.flags |= C.O_NONBLOCK
+      else
+         self.flags &= ~C.O_NONBLOCK
+      end
+   end
+   get nonblocking()
+      return (self.flags & C.O_NONBLOCK) != 0
+   end
+
+   get readable()
+      self.poller.modify C.ZMQ_POLLIN | C.ZMQ_POLLERR
+      self.poller.start()
+      self._readable.down()
+      if self._ioerrors.count > 0 then
+         self.poller.stop()
+         return -1
+      else
+         return 1
+      end
+   end
+
+   get writable()
+      self.poller.modify C.ZMQ_POLLOUT | C.ZMQ_POLLERR
+      self.poller.start()
+      self._writable.down()
+      if self._ioerrors.count > 0 then
+         self.poller.stop()
+         return -1
+      else
+         return 1
+      end
+   end
+
+end
+
+class TCPSocket extends Socket
+   self()
+      super(C.AF_INET, C.SOCK_STREAM, C.IPPROTO_TCP)
+   end
+end
+
+class TCPClient extends TCPSocket
+   connect(host, port)
+      port = port and tostring(port) or nil
+      info = ffi::new('struct addrinfo*[1]')
+      hint = ffi::new('struct addrinfo')
+
+      hint.ai_family   = C.AF_INET
+      hint.ai_socktype = C.SOCK_STREAM
+
+      retv = C::getaddrinfo(host, port, hint, info)
+      if retv == -1 then
+         throw strerror(ffi::errno())
+      end
+
+      addr = info[0]
+      stat = C::connect(self.so_fd, addr.ai_addr, addr.ai_addrlen)
+      if stat == -1 then
+         throw strerror(ffi::errno())
+      end
+
+      C::freeaddrinfo(info[0])
+   end
+
+   read(buf, len)
+      if self.readable > 0 then
+         return C::read(self.so_fd, buf, len)
+      end
+   end
+   write(buf)
+      if typeof buf == 'cdata' then
+         buf = ffi::string(buf)
+      else
+         buf = tostring(buf)
+      end
+      while #buf > 0 do 
+         if self.writable > 0 then
+            got = C::write(self.so_fd, buf, #buf)
+            buf = buf.sub(tonumber(got) + 1)
+         else
+            return -1
+         end
+      end
+   end
+   close()
+      return C::close(self.so_fd)
+   end
+end
+
+class TCPServer extends TCPSocket
+   self(host, port)
+      super()
+      if host and port then
+         self.bind(host, port)
+      end
+   end
+
+   bind(host, port)
+      port = port and tostring(port) or nil
+      info = ffi::new('struct addrinfo*[1]')
+      hint = ffi::new('struct addrinfo')
+
+      hint.ai_family   = C.AF_INET
+      hint.ai_socktype = C.SOCK_STREAM
+
+      retv = C::getaddrinfo(host, port, hint, info)
+      if retv == -1 then
+         throw strerror(ffi::errno())
+      end
+
+      addr = info[0]
+      stat = C::bind(self.so_fd, addr.ai_addr, addr.ai_addrlen)
+
+      if stat == -1 then
+         throw strerror(ffi::errno())
+      end
+
+      C::freeaddrinfo(info[0])
+      return stat
+   end
+
+   listen(backlog = 128)
+      stat = C::listen(self.so_fd, backlog)
+      if stat == -1 then
+         throw strerror(ffi::errno())
+      end
+      return stat
+   end
+
+   accept()
+      addr = ffi::new('struct sockaddr')
+      addr.sa_family = C.AF_INET
+      addr_len = ffi::new('socklen_t[1]', ffi::sizeof(addr))
+
+      local sock
+      if self.readable > 0 then
+         fd = C::accept(self.so_fd, addr, addr_len)
+         if fd == -1 then
+            throw strerror(ffi::errno())
+         end
+
+         sock = setmetatable({ }, TCPClient)
+         sock.so_fd = fd
+         sock.nonblocking = true
+      end
+      return sock
+   end
+
+   close()
+      return C::close(self.so_fd)
+   end
+end
+
+
+export Socket, TCPSocket, TCPServer, TCPClient
+
