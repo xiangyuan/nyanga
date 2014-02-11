@@ -47,8 +47,8 @@ print "get", p.foo
 p.foo = 42
 print "set", p.foo
 
-print("is check 1:", p or Point)
-print("is check 2:", p or Point3D)
+print("is check 1:", p is Point)
+print("is check 2:", p is Point3D)
 a = [ i * 2 for i in 1..10 if i % 2 == 0 ]
 
 for i, v in a do

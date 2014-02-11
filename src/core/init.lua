@@ -5,10 +5,11 @@ See Copyright Notice in nyanga
 
 require("nyanga.lang")
 
+local loader = require("nyanga.lang.loader").loader
+table.insert(package.loaders, 1, loader)
+
 local ffi  = require('ffi')
 local lpeg = require('lpeg')
-
-local compiler = require("nyanga.lang.compiler")
 
 local Class
 local Range
@@ -16,54 +17,6 @@ local Range
 local export = { }
 
 local getmetatable, setmetatable = _G.getmetatable, _G.setmetatable
-
-local function loader(modname)
-   local filename, havepath
-   if string.find(modname, '/') or string.match(modname, '%w%.ngac?$') then
-      filename = modname
-      if string.sub(modname, 1, 1) == '.' then
-         havepath = true
-      end
-   else
-      local namelist = { }
-      for frag in modname:gmatch('([^.]+)') do
-         namelist[#namelist + 1] = frag
-      end
-      filename = table.concat(namelist, '/')
-   end
-   if havepath then
-      local filepath = filename
-      local file = io.open(filepath, "r")
-      if file then
-         local src = file:read("*a")
-         local fun
-         if string.match(filepath, '%.ngac') then
-            fun = loadstring(src, '@'..filepath)
-         else
-            fun = compiler.compile(src, filepath)
-         end
-         return fun, filepath
-      end
-   else
-      for path in string.gmatch(NYANGA_PATH, "([^;]+)") do
-         if path ~= "" then
-            local filepath = string.gsub(path, "?", filename)
-            local file = io.open(filepath, "r")
-            if file then
-               local src = file:read("*a")
-               local fun
-               if string.match(filepath, '%.ngac') then
-                  fun = loadstring(src, '@'..filepath)
-               else
-                  fun = compiler.compile(src, filepath)
-               end
-               return fun, filepath
-            end
-         end
-      end
-   end
-end
-table.insert(package.loaders, loader)
 
 local function __is__(a, b)
    if type(b) == 'table' and b.__istype then
@@ -241,7 +194,6 @@ local function class(name, body, ...)
       end
    end
 
-   --body(setmetatable(class, cmeta), base and base.__members__ or nil)
    body(setmetatable(class, Class), base and base.__members__ or nil)
 
    for name, delg in pairs(special) do
@@ -818,7 +770,6 @@ do
    rule.__unm = mm.__unm
    for k,v in pairs(lpeg) do rule[k] = v end
 end
-
 
 local __magic__ = {
    try    = try;

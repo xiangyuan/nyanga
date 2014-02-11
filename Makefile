@@ -1,4 +1,6 @@
 
+export PREFIX = /usr/local
+
 LIBDIR =./lib
 CURDIR = $(shell pwd)
 DEPDIR = ${CURDIR}/deps
@@ -7,6 +9,8 @@ BUILD  = ${CURDIR}/build
 LJ = ${DEPDIR}/luajit/src/luajit
 LJC = ${LJ} -b -g
 NGC = boot/bin/ngac
+
+VERSION=0.1
 
 CFLAGS=-O2 -Wall
 LDFLAGS=-lm -ldl
@@ -30,7 +34,7 @@ LDFLAGS+=-lstdc++ -Wl,--whole-archive -Wl,-E
 SOFLAGS+=-shared -fPIC
 endif
 
-LPEG := boot/lib/lpeg.so
+LPEG := ${DEPDIR}/lpeg/lpeg.so
 
 DEPS := ${BUILD}/deps/liblpeg.a \
 	${BUILD}/deps/libzmq.a \
@@ -52,7 +56,6 @@ CORE := ${BUILD}/core/init.o \
 
 LANG := ${BUILD}/lang/builder.o \
 	${BUILD}/lang/bytecode.o \
-	${BUILD}/lang/compiler.o \
 	${BUILD}/lang/generator.o \
 	${BUILD}/lang/init.o \
 	${BUILD}/lang/tree.o \
@@ -67,18 +70,27 @@ LIBS := ${BUILD}/nyanga.so
 
 EXEC := ${BUILD}/nyanga
 
-all: dirs ${LJ} ${LIBS} ${EXEC}
+NGAC := ${BUILD}/nyangac
+
+XDEPS = ${DEPS} ${BUILD}/lang.a ${BUILD}/core.a ${BUILD}/main.o
+
+CDEPS = ${BUILD}/deps/liblpeg.a ${BUILD}/deps/libluajit.a ${BUILD}/lang.a ${BUILD}/ngac.o
+
+all: dirs ${LJ} ${LPEG} ${LIBS} ${EXEC} ${NGAC}
 
 dirs:
 	mkdir -p ${BUILD}/deps
 	mkdir -p ${BUILD}/lang
 	mkdir -p ${BUILD}/core
 
-${BUILD}/nyanga: ${LJ} ${LPEG} ${DEPS}
-	${CC} ${CFLAGS} -I${DEPDIR}/luajit/src -L${DEPDIR}/luajit/src -o ${BUILD}/nyanga src/nyanga.c ${DEPS} ${LDFLAGS}
+${BUILD}/nyanga: ${LJ} ${XDEPS}
+	${CC} ${CFLAGS} -I${DEPDIR}/luajit/src -L${DEPDIR}/luajit/src -o ${BUILD}/nyanga src/nyanga.c ${XDEPS} ${LDFLAGS}
 
 ${BUILD}/nyanga.so: ${BUILD}/deps/liblpeg.a ${BUILD}/lang.a ${BUILD}/core.a ${BUILD}/main.o
 	${CC} ${SOFLAGS} -o ${BUILD}/nyanga.so ${LDFLAGS} ${BUILD}/main.o ${BUILD}/deps/liblpeg.a ${BUILD}/lang.a ${BUILD}/core.a
+
+${BUILD}/nyangac: ${LJ} ${CDEPS}
+	${CC} ${CFLAGS} -I${DEPDIR}/luajit/src -L${DEPDIR}/luajit/src -o ${BUILD}/nyangac src/nyangac.c ${CDEPS} ${LDFLAGS}
 
 ${BUILD}/lang.a: ${LJ}
 	mkdir -p ${BUILD}/lang
@@ -87,16 +99,20 @@ ${BUILD}/lang.a: ${LJ}
 	${LJC} -n "nyanga.lang.parser" src/lang/parser.lua ${BUILD}/lang/parser.o
 	${LJC} -n "nyanga.lang.tree" src/lang/tree.lua ${BUILD}/lang/tree.o
 	${LJC} -n "nyanga.lang.syntax" src/lang/syntax.lua ${BUILD}/lang/syntax.o
-	${LJC} -n "nyanga.lang.compiler" src/lang/compiler.lua ${BUILD}/lang/compiler.o
+	${LJC} -n "nyanga.lang.loader" src/lang/loader.lua ${BUILD}/lang/loader.o
 	${LJC} -n "nyanga.lang.transformer" src/lang/transformer.lua ${BUILD}/lang/transformer.o
 	${LJC} -n "nyanga.lang.bytecode" src/lang/bytecode.lua ${BUILD}/lang/bytecode.o
 	${LJC} -n "nyanga.lang.builder" src/lang/builder.lua ${BUILD}/lang/builder.o
 	${LJC} -n "nyanga.lang.util" src/lang/util.lua ${BUILD}/lang/util.o
 	${LJC} -n "nyanga.lang.generator" src/lang/generator.lua ${BUILD}/lang/generator.o
+	${LJC} -n "nyanga.lang.gensource" src/lang/gensource.lua ${BUILD}/lang/gensource.o
 	ar rcus ${BUILD}/lang.a ${BUILD}/lang/*.o
 
 ${BUILD}/main.o:
 	${LJC} -n "nyanga" src/main.lua ${BUILD}/main.o
+
+${BUILD}/ngac.o:
+	${LJC} -n "nyangac" src/ngac.lua ${BUILD}/ngac.o
 
 ${BUILD}/core.a: ${CORE}
 	ar rcus ${BUILD}/core.a ${BUILD}/core/*.o
@@ -153,7 +169,7 @@ ${BUILD}/deps/libluajit.a: ${LJ}
 
 ${LJ}:
 	git submodule update --init ${DEPDIR}/luajit
-	${MAKE} XCFLAGS="-DLUAJIT_ENABLE_LUA52COMPAT" -C ${DEPDIR}/luajit
+	${MAKE} PREFIX=${PREFIX} XCFLAGS="-DLUAJIT_ENABLE_LUA52COMPAT" -C ${DEPDIR}/luajit
 
 ${LPEG}:
 	make -C ${DEPDIR}/lpeg ${LPEG_BUILD}
@@ -165,8 +181,20 @@ clean:
 	rm -f ${BUILD}/core.a
 	rm -f ${BUILD}/lang.a
 	rm -f ${BUILD}/main.o
-	rm -f ${BUILD}/nyanga.so
+	rm -f ${BUILD}/ngac.o
 	rm -f ${BUILD}/nyanga
+	rm -f ${BUILD}/nyangac
+	rm -f ${BUILD}/nyanga.so
+
+install: all
+	install -m 0755 ${BUILD}/nyanga ${PREFIX}/bin/nyanga
+	install -m 0755 ${BUILD}/nyangac ${PREFIX}/bin/nyangac
+	install -m 0644 ${BUILD}/nyanga.so ${PREFIX}/lib/lua/5.1/nyanga.so
+
+uninstall:
+	rm -f ${PREFIX}/bin/nyanga
+	rm -f ${PREFIX}/bin/nyangac
+	rm -f ${PREFIX}/lib/lua/5.1/nyanga.so
 
 realclean: clean
 	make -C ${DEPDIR}/luajit clean
@@ -179,11 +207,12 @@ bootstrap: ${LJ} ${LPEG}
 	mkdir -p boot/bin
 	mkdir -p boot/lib
 	mkdir -p boot/src/nyanga/lang
+	${LJC} src/ngac.lua		boot/src/ngac.raw
 	${LJC} src/lang/re.lua          boot/src/nyanga/lang/re.raw
 	${LJC} src/lang/parser.lua      boot/src/nyanga/lang/parser.raw
 	${LJC} src/lang/tree.lua        boot/src/nyanga/lang/tree.raw
 	${LJC} src/lang/syntax.lua      boot/src/nyanga/lang/syntax.raw
-	${LJC} src/lang/compiler.lua    boot/src/nyanga/lang/compiler.raw
+	${LJC} src/lang/loader.lua	boot/src/nyanga/lang/loader.raw
 	${LJC} src/lang/transformer.lua boot/src/nyanga/lang/transformer.raw
 	${LJC} src/lang/bytecode.lua    boot/src/nyanga/lang/bytecode.raw
 	${LJC} src/lang/builder.lua     boot/src/nyanga/lang/builder.raw
@@ -191,5 +220,5 @@ bootstrap: ${LJ} ${LPEG}
 	${LJC} src/lang/generator.lua   boot/src/nyanga/lang/generator.raw
 	${LJC} src/lang/gensource.lua   boot/src/nyanga/lang/gensource.raw
 
-.PHONY: all clean realclean bootstrap
+.PHONY: all clean realclean bootstrap install uninstall
 

@@ -24,20 +24,23 @@ THE SOFTWARE.
 [ MIT license: http://www.opensource.org/licenses/mit-license.php ]
 ]=]
 
-package.path  = ';;./lib/?.raw;./lib/?.lua;'..package.path
-package.path  = './?.nga;./lib/?.nga;/usr/local/lib/nyanga/?.nga;'..package.path
-package.cpath = ';;./lib/?.so;'..package.cpath
+local bcsave = require("jit.bcsave")
 
-require("nyanga.lang")
-
-local usage = "usage: %s [options]... [script [args]...].\
+local usage = "usage: %s [options]... input output.\
 Available options are:\
-  -e chunk\tExecute string 'chunk'.\
-  -c ...  \tCompile or list bytecode.\
-  --      \tStop handling options."
+  -t type \tOutput file format.\
+  -b      \tList formatted bytecode.\
+  -n name \tProvide a chunk name.\
+  -p      \tPrint the parse tree.\
+  -l      \tPrint the lua tree.\
+"
 
 local function runopt(args)
-   local loader = require("nyanga.lang.loader")
+   local util        = require('nyanga.lang.util')
+   local parser      = require('nyanga.lang.parser')
+   local transformer = require('nyanga.lang.transformer')
+   local generator   = require('nyanga.lang.generator')
+   local gensource   = require('nyanga.lang.gensource')
 
    if #args == 0 then
       print(string.format(usage, arg[0]))
@@ -45,24 +48,19 @@ local function runopt(args)
    end
 
    local opts = { }
-   local copt = { }
    local i = 0
    repeat
       i = i + 1
       local a = args[i]
-      if a == "-e" then
+      if a == "-t" then
          i = i + 1
-         opts['-e'] = args[i]
-      elseif a == "-c" then
-         error("NYI")
-         opts['-c'] = true
-         for j=1, #args do
-            copt[#copt + 1] = args[j]
-         end
-         break
+         opts['-t'] = args[i]
       elseif a == "-h" or a == "-?" then
          print(string.format(usage, arg[0]))
-         os.exit()
+         os.exit(0)
+      elseif a == "-n" then
+         i = i + 1
+	 opts['-n'] = args[i]
       elseif string.sub(a, 1, 1) == '-' then
          opts[a] = true
       else
@@ -70,27 +68,74 @@ local function runopt(args)
       end
    until i == #args
 
-   args = { [0] = args[0], unpack(opts, 2) }
-   local code, name
+   local code, name, dest
    if opts['-e'] then
       code = opts['-e']
       name = code
+      dest = opts[1]
    elseif opts['--'] then
       code = io.stdin:read('*a')
+      name = "stdin"
+      dest = opts[1]
    else
-      if not opts[1] then
-         error("no chunk or script file provided")
-      end
       name = opts[1]
+      dest = opts[2]
       local file = assert(io.open(opts[1], 'r'))
       code = file:read('*a')
       file:close()
    end
 
-   local main = assert(loader.loadchunk(code, name))
-   if not (opts['-b'] or opts['-c']) then
-      main(name, unpack(args))
+   local srctree = parser.parse(code, name, opts)
+
+   if opts['-p'] then
+      io.stdout:write("Nyanga parse tree:\n")
+      io.stdout:write(util.dump(srctree))
+      os.exit(0)
    end
+
+   local dsttree = transformer.transform(srctree, code, name, opts)
+
+   if opts['-l'] then
+      io.stdout:write("Nyanga transform tree:\n")
+      io.stdout:write(util.dump(dsttree))
+      os.exit(0)
+   end
+
+   if #opts ~= 2 then
+      io.stderr:write(string.format(usage, arg[0]))
+      os.exit(1)
+   end
+
+   local luacode
+   if opts['-t'] == 'lua' or string.sub(dest, -4) == '.lua' then
+      luacode = gensource.generate(dsttree, '@'..name, opts)
+      local file = io.open(dest, 'w+')
+      file:write(luacode)
+      file:close()
+      os.exit(0)
+   else
+      luacode = generator.generate(dsttree, '@'..name, opts)
+   end
+
+   if opts['-b'] then
+      bcsave.start('-l', '-e', luacode)
+      os.exit(0)
+   end
+
+   args = { }
+   if opts['-n'] then
+      args[#args + 1] = '-n'
+      args[#args + 1] = opts['-n']
+   end
+   if opts['-t'] then
+      args[#args + 1] = '-t'
+      args[#args + 1] = opts['-t']
+   end
+   args[#args + 1] = '-e'
+   args[#args + 1] = luacode
+   args[#args + 1] = dest
+
+   bcsave.start(unpack(args))
 end
 
 runopt(arg)

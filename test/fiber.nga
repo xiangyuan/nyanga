@@ -1,4 +1,4 @@
-import await, sleep, async from "nyanga.core.system"
+import await, sleep, async from "nyanga.core.async"
 
 async =>
    for i=1, 3 do

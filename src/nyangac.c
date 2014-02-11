@@ -50,7 +50,7 @@ int main(int argc, char *argv[]) {
 
     lua_pushcfunction(L, traceback);
     lua_getglobal(L, "require");
-    lua_pushliteral(L, "nyanga");
+    lua_pushliteral(L, "nyangac");
     status = lua_pcall(L, 1, 1, -3);
 
     if (status) {
