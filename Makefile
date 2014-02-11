@@ -1,10 +1,16 @@
 
-LIBDIR=./lib
+LIBDIR =./lib
 CURDIR = $(shell pwd)
 DEPDIR = ${CURDIR}/deps
 BUILD  = ${CURDIR}/build
 
-LDFLAGS=
+LJ = ${DEPDIR}/luajit/src/luajit
+LJC = ${LJ} -b -g
+NGC = boot/bin/ngac
+
+CFLAGS=-O2 -Wall
+LDFLAGS=-lm -ldl
+SOFLAGS=
 
 OS_NAME=$(shell uname -s)
 MH_NAME=$(shell uname -m)
@@ -12,54 +18,157 @@ MH_NAME=$(shell uname -m)
 ifeq (${OS_NAME}, Darwin)
 LPEG_BUILD=macosx
 LIBEXT=dylib
-LDFLAGS=-lluajit -lstdc++ -Wl,-all_load
+LDFLAGS+=-lstdc++ -Wl,-all_load
+SOFLAGS+=-dynamic -bundle -undefined dynamic_lookup
+ifeq (${MH_NAME}, x86_64)
+CFLAGS+=-pagezero_size 10000 -image_base 100000000
+endif
 else
 LPEG_BUILD=linux
 LIBEXT=so
-LDFLAGS=-lluajit -lstdc++ -Wl,--whole-archive -Wl,-E
+LDFLAGS+=-lstdc++ -Wl,--whole-archive -Wl,-E
+SOFLAGS+=-shared -fPIC
 endif
 
-DEPS = ${BUILD}/lib/libnyanga.a ${BUILD}/lib/liblpeg.a ${BUILD}/lib/libzmq.a ${BUILD}/lib/libczmq.a
+DEPS := ${BUILD}/deps/liblpeg.a \
+	${BUILD}/deps/libzmq.a \
+	${BUILD}/deps/libczmq.a \
+	${BUILD}/deps/libluajit.a
 
-all: nyanga.so
+CORE := ${BUILD}/core/init.o \
+	${BUILD}/core/zmq.o \
+	${BUILD}/core/ffi_zmq.o \
+	${BUILD}/core/queue.o \
+	${BUILD}/core/fiber.o \
+	${BUILD}/core/loop.o \
+	${BUILD}/core/system.o
 
-nyanga.so: ${DEPS}
-	${CC} -dynamic -bundle -undefined dynamic_lookup -o nyanga.so -L../luajit-2.0/src/ ${LDFLAGS} ${DEPS}
+LANG := ${BUILD}/lang/builder.o \
+	${BUILD}/lang/bytecode.o \
+	${BUILD}/lang/compiler.o \
+	${BUILD}/lang/generator.o \
+	${BUILD}/lang/init.o \
+	${BUILD}/lang/tree.o \
+	${BUILD}/lang/parser.o \
+	${BUILD}/lang/re.o \
+	${BUILD}/lang/syntax.o \
+	${BUILD}/lang/transformer.o \
+	${BUILD}/lang/util.o
 
-${BUILD}/lib/libnyanga.a:
-	mkdir -p ${BUILD}/lib
-	mkdir -p ${BUILD}/nyanga
-	luajit -b -n "nyanga" lib/nyanga.lua ${BUILD}/nyanga/init.o
-	luajit -b -n "nyanga.re" lib/nyanga/re.lua ${BUILD}/nyanga/re.o
-	luajit -b -n "nyanga.runtime" lib/nyanga/runtime.lua ${BUILD}/nyanga/runtime.o
-	luajit -b -n "nyanga.parser" lib/nyanga/parser.lua ${BUILD}/nyanga/parser.o
-	luajit -b -n "nyanga.parser.defs" lib/nyanga/parser/defs.lua ${BUILD}/nyanga/parser_defs.o
-	luajit -b -n "nyanga.syntax" lib/nyanga/syntax.lua ${BUILD}/nyanga/syntax.o
-	luajit -b -n "nyanga.compiler" lib/nyanga/compiler.lua ${BUILD}/nyanga/compiler.o
-	luajit -b -n "nyanga.transformer" lib/nyanga/transformer.lua ${BUILD}/nyanga/transformer.o
-	luajit -b -n "nyanga.bytecode" lib/nyanga/bytecode.lua ${BUILD}/nyanga/bytecode.o
-	luajit -b -n "nyanga.builder" lib/nyanga/builder.lua ${BUILD}/nyanga/builder.o
-	luajit -b -n "nyanga.util" lib/nyanga/util.lua ${BUILD}/nyanga/util.o
-	luajit -b -n "nyanga.generator" lib/nyanga/generator.lua ${BUILD}/nyanga/generator.o
-	luajit -b -n "nyanga.generator.source" lib/nyanga/generator/source.lua ${BUILD}/nyanga/generator_source.o
-	luajit -b -n "nyanga.generator.bytecode" lib/nyanga/generator/bytecode.lua ${BUILD}/nyanga/generator_bytecode.o
-	ar rcus ${BUILD}/lib/libnyanga.a ${BUILD}/nyanga/*.o
 
-${BUILD}/lib/liblpeg.a:
+LIBS := ${BUILD}/nyanga.so
+
+EXEC := ${BUILD}/nyanga
+
+all: dirs ${LJ} ${LIBS} ${EXEC}
+
+dirs:
+	mkdir -p ${BUILD}/deps
+	mkdir -p ${BUILD}/lang
+	mkdir -p ${BUILD}/core
+
+${BUILD}/nyanga: ${LJ} ${DEPS}
+	${CC} ${CFLAGS} -I${DEPDIR}/luajit/src -L${DEPDIR}/luajit/src -o ${BUILD}/nyanga src/nyanga.c ${DEPS} ${LDFLAGS}
+
+${BUILD}/nyanga.so: ${BUILD}/deps/liblpeg.a ${BUILD}/lang.a ${BUILD}/core.a ${BUILD}/main.o
+	${CC} ${SOFLAGS} -o ${BUILD}/nyanga.so ${LDFLAGS} ${BUILD}/main.o ${BUILD}/deps/liblpeg.a ${BUILD}/lang.a ${BUILD}/core.a
+
+${BUILD}/lang.a: ${LJ}
+	mkdir -p ${BUILD}/lang
+	${LJC} -n "nyanga.lang" src/lang/init.lua ${BUILD}/lang/init.o
+	${LJC} -n "nyanga.lang.re" src/lang/re.lua ${BUILD}/lang/re.o
+	${LJC} -n "nyanga.lang.parser" src/lang/parser.lua ${BUILD}/lang/parser.o
+	${LJC} -n "nyanga.lang.tree" src/lang/tree.lua ${BUILD}/lang/tree.o
+	${LJC} -n "nyanga.lang.syntax" src/lang/syntax.lua ${BUILD}/lang/syntax.o
+	${LJC} -n "nyanga.lang.compiler" src/lang/compiler.lua ${BUILD}/lang/compiler.o
+	${LJC} -n "nyanga.lang.transformer" src/lang/transformer.lua ${BUILD}/lang/transformer.o
+	${LJC} -n "nyanga.lang.bytecode" src/lang/bytecode.lua ${BUILD}/lang/bytecode.o
+	${LJC} -n "nyanga.lang.builder" src/lang/builder.lua ${BUILD}/lang/builder.o
+	${LJC} -n "nyanga.lang.util" src/lang/util.lua ${BUILD}/lang/util.o
+	${LJC} -n "nyanga.lang.generator" src/lang/generator.lua ${BUILD}/lang/generator.o
+	ar rcus ${BUILD}/lang.a ${BUILD}/lang/*.o
+
+${BUILD}/main.o:
+	${LJC} -n "nyanga" src/main.lua ${BUILD}/main.o
+
+${BUILD}/core.a: ${CORE}
+	ar rcus ${BUILD}/core.a ${BUILD}/core/*.o
+
+${BUILD}/core/init.o:
+	${LJC} -n "nyanga.core" src/core/init.lua ${BUILD}/core/init.o
+
+${BUILD}/core/zmq.o:
+	${NGC} -n "nyanga.core.zmq" src/core/zmq.nga ${BUILD}/core/zmq.o
+
+${BUILD}/core/ffi_zmq.o:
+	${NGC} -n "nyanga.core.ffi.zmq" src/core/ffi/zmq.nga ${BUILD}/core/ffi_zmq.o
+
+${BUILD}/core/queue.o:
+	${NGC} -n "nyanga.core.queue" src/core/queue.nga ${BUILD}/core/queue.o
+
+${BUILD}/core/fiber.o:
+	${NGC} -n "nyanga.core.fiber" src/core/fiber.nga ${BUILD}/core/fiber.o
+
+${BUILD}/core/loop.o:
+	${NGC} -n "nyanga.core.loop" src/core/loop.nga ${BUILD}/core/loop.o
+
+${BUILD}/core/system.o:
+	${NGC} -n "nyanga.core.system" src/core/system.nga ${BUILD}/core/system.o
+
+${BUILD}/deps/liblpeg.a: ${LPEG}
 	make -C ${DEPDIR}/lpeg ${LPEG_BUILD}
-	ar rcus ${BUILD}/lib/liblpeg.a ${DEPDIR}/lpeg/*.o
+	ar rcus ${BUILD}/deps/liblpeg.a ${DEPDIR}/lpeg/*.o
 
-${BUILD}/lib/libczmq.a: ${BUILD}/lib/libzmq.a
-	cd ${DEPDIR}/czmq && ./configure --enable-static --with-libzmq=${BUILD} --prefix=${BUILD} && make && make install
+${BUILD}/deps/libczmq.a: ${BUILD}/deps/libzmq.a
+	cd ${DEPDIR}/czmq && ./configure --with-libzmq=${BUILD}/deps --prefix=${BUILD}/deps && make && make install
+	cp ${BUILD}/deps/lib/libczmq.a ${BUILD}/deps
 
-${BUILD}/lib/libzmq.a:
-	cd ${DEPDIR}/zeromq && ./configure --enable-static --prefix=${BUILD} && make && make install
+${BUILD}/deps/libzmq.a:
+	cd ${DEPDIR}/zeromq && ./configure --prefix=${BUILD}/deps && make && make install
+	cp ${BUILD}/deps/lib/libzmq.a ${BUILD}/deps
+
+${BUILD}/deps/libluajit.a: ${LJ}
+	cp ${DEPDIR}/luajit/src/libluajit.a ${BUILD}/deps/libluajit.a
+
+${LJ}:
+	git submodule update --init ${DEPDIR}/luajit
+	${MAKE} XCFLAGS="-DLUAJIT_ENABLE_LUA52COMPAT" -C ${DEPDIR}/luajit
+
+${LPEG}:
+	make -C ${DEPDIR}/lpeg ${LPEG_BUILD}
 
 clean:
+	rm -rf ${BUILD}/core/*
+	rm -rf ${BUILD}/lang/*
+	rm -f ${BUILD}/core.a
+	rm -f ${BUILD}/lang.a
+	rm -f ${BUILD}/main.o
+	rm -f ${BUILD}/nyanga.so
+	rm -f ${BUILD}/nyanga
+
+realclean: clean
+	make -C ${DEPDIR}/luajit clean
 	make -C ${DEPDIR}/lpeg clean
 	make -C ${DEPDIR}/czmq clean
 	make -C ${DEPDIR}/zeromq clean
 	rm -rf ${BUILD}
-	rm -f nyanga.so
 
+bootstrap: ${LJ} ${LPEG}
+	mkdir -p boot/bin
+	mkdir -p boot/lib
+	mkdir -p boot/src/nyanga/lang
+	cp ${DEPDIR}/lpeg/lpeg.so	boot/lib/
+	${LJC} src/lang/re.lua          boot/src/nyanga/lang/re.raw
+	${LJC} src/lang/parser.lua      boot/src/nyanga/lang/parser.raw
+	${LJC} src/lang/tree.lua        boot/src/nyanga/lang/tree.raw
+	${LJC} src/lang/syntax.lua      boot/src/nyanga/lang/syntax.raw
+	${LJC} src/lang/compiler.lua    boot/src/nyanga/lang/compiler.raw
+	${LJC} src/lang/transformer.lua boot/src/nyanga/lang/transformer.raw
+	${LJC} src/lang/bytecode.lua    boot/src/nyanga/lang/bytecode.raw
+	${LJC} src/lang/builder.lua     boot/src/nyanga/lang/builder.raw
+	${LJC} src/lang/util.lua        boot/src/nyanga/lang/util.raw
+	${LJC} src/lang/generator.lua   boot/src/nyanga/lang/generator.raw
+	${LJC} src/lang/gensource.lua   boot/src/nyanga/lang/gensource.raw
+
+.PHONY: all clean realclean bootstrap
 
