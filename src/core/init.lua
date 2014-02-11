@@ -853,12 +853,12 @@ _G.__magic__ = __magic__
 export.__magic__ = __magic__
 package.loaded["nyanga.core"] = export
 
-local system = require("nyanga.core.system")
+local async = require("nyanga.core.async")
 
 function __magic__.__yield__(...)
    local coro, main = coroutine.running()
    if main then
-      return system.schedule(...)
+      return async.schedule(...)
    else
       return coroutine.yield(...)
    end

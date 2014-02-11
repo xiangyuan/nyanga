@@ -39,11 +39,16 @@ DEPS := ${BUILD}/deps/liblpeg.a \
 
 CORE := ${BUILD}/core/init.o \
 	${BUILD}/core/zmq.o \
-	${BUILD}/core/ffi_zmq.o \
 	${BUILD}/core/queue.o \
 	${BUILD}/core/fiber.o \
 	${BUILD}/core/loop.o \
-	${BUILD}/core/system.o
+	${BUILD}/core/async.o \
+	${BUILD}/core/ffi.o \
+	${BUILD}/core/ffi_posix.o \
+	${BUILD}/core/ffi_osx.o \
+	${BUILD}/core/ffi_linux.o \
+	${BUILD}/core/ffi_bsd.o \
+	${BUILD}/core/ffi_zmq.o
 
 LANG := ${BUILD}/lang/builder.o \
 	${BUILD}/lang/bytecode.o \
@@ -102,9 +107,6 @@ ${BUILD}/core/init.o:
 ${BUILD}/core/zmq.o:
 	${NGC} -n "nyanga.core.zmq" src/core/zmq.nga ${BUILD}/core/zmq.o
 
-${BUILD}/core/ffi_zmq.o:
-	${NGC} -n "nyanga.core.ffi.zmq" src/core/ffi/zmq.nga ${BUILD}/core/ffi_zmq.o
-
 ${BUILD}/core/queue.o:
 	${NGC} -n "nyanga.core.queue" src/core/queue.nga ${BUILD}/core/queue.o
 
@@ -114,8 +116,26 @@ ${BUILD}/core/fiber.o:
 ${BUILD}/core/loop.o:
 	${NGC} -n "nyanga.core.loop" src/core/loop.nga ${BUILD}/core/loop.o
 
-${BUILD}/core/system.o:
-	${NGC} -n "nyanga.core.system" src/core/system.nga ${BUILD}/core/system.o
+${BUILD}/core/async.o:
+	${NGC} -n "nyanga.core.async" src/core/async.nga ${BUILD}/core/async.o
+
+${BUILD}/core/ffi.o:
+	${NGC} -n "nyanga.core.ffi" src/core/ffi/init.nga ${BUILD}/core/ffi.o
+
+${BUILD}/core/ffi_posix.o:
+	${NGC} -n "nyanga.core.ffi.posix" src/core/ffi/posix.nga ${BUILD}/core/ffi_posix.o
+
+${BUILD}/core/ffi_osx.o:
+	${NGC} -n "nyanga.core.ffi.osx" src/core/ffi/osx.nga ${BUILD}/core/ffi_osx.o
+
+${BUILD}/core/ffi_linux.o:
+	${NGC} -n "nyanga.core.ffi.linux" src/core/ffi/linux.nga ${BUILD}/core/ffi_linux.o
+
+${BUILD}/core/ffi_bsd.o:
+	${NGC} -n "nyanga.core.ffi.bsd" src/core/ffi/bsd.nga ${BUILD}/core/ffi_bsd.o
+
+${BUILD}/core/ffi_zmq.o:
+	${NGC} -n "nyanga.core.ffi.zmq" src/core/ffi/zmq.nga ${BUILD}/core/ffi_zmq.o
 
 ${BUILD}/deps/liblpeg.a: ${LPEG}
 	ar rcus ${BUILD}/deps/liblpeg.a ${DEPDIR}/lpeg/*.o

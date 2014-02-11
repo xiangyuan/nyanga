@@ -1,0 +1,13 @@
+local ffi = require("ffi")
+if ffi::os == "Linux" then
+   require("nyanga.core.ffi.linux")
+elseif ffi::os == "OSX" then
+   require("nyanga.core.ffi.osx")
+elseif ffi::os == "BSD" then
+   require("nyanga.core.ffi.bsd")
+elseif ffi::os == "POSIX" then
+   require("nyanga.core.ffi.posix")
+else
+   error("unsupported platform")
+end
+
