@@ -1,0 +1,9 @@
+test/*
+*.slo
+*.lo
+*.o
+*.so
+*.lai
+*.la
+*.a
+.*.sw*
