@@ -4,9 +4,9 @@ See Copyright Notice in nyanga
 ]=]
 
 local lpeg = require('lpeg')
-local util = require("nyanga.util")
-local re   = require('nyanga.re')
-local defs = require('nyanga.parser.defs')
+local util = require('nyanga.lang.util')
+local defs = require('nyanga.lang.tree')
+local re   = require('nyanga.lang.re')
 lpeg.setmaxstack(1024)
 
 local patt = [=[

@@ -3,14 +3,17 @@ Copyright (C) 2013-2014 Richard Hundt and contributors.
 See Copyright Notice in nyanga
 ]=]
 
-local ffi      = require('ffi')
-local lpeg     = require('lpeg')
-local compiler = require('nyanga.compiler')
+require("nyanga.lang")
+
+local ffi  = require('ffi')
+local lpeg = require('lpeg')
+
+local compiler = require("nyanga.lang.compiler")
 
 local Class
 local Range
+
 local export = { }
-package.loaded['nyanga.runtime'] = export
 
 local getmetatable, setmetatable = _G.getmetatable, _G.setmetatable
 
@@ -187,30 +190,6 @@ local special = {
 }
 
 local function class(name, body, ...)
-   --[[
-   local cmeta = setmetatable({ __metatable = Class }, Meta)
-   function cmeta.__call(class, ...)
-      local obj
-      if class.__apply then
-         obj = class:__apply(...)
-      else
-         obj = { }
-         setmetatable(obj, class)
-         if class.__members__.self then
-            class.__members__.self(obj, ...)
-         end
-      end
-      return obj
-   end
-   function cmeta.__tostring(class)
-      return string.format("Class<%s>", class.__name)
-   end
-   function cmeta.__index(class, key)
-      return class.__members__[key]
-   end
-   cmeta.__metatable = Class
-   --]]
-
    local base
    if select('#', ...) > 0 then
       if select(1, ...) == nil then
@@ -573,16 +552,6 @@ local function import(from, ...)
    return unpack(list)
 end
 
-local system
-local function yield(...)
-   local coro, main = coroutine.running()
-   if main then
-      return system.schedule(...)
-   else
-      return coroutine.yield(...)
-   end
-end
-
 local ArrayPattern, TablePattern, ApplyPattern
 
 local __var__ = newproxy()
@@ -850,69 +819,8 @@ do
    for k,v in pairs(lpeg) do rule[k] = v end
 end
 
-local function run(code, ...)
-   code(...)
-end
 
-local usage = "usage: %s [options]... [script [args]...].\
-Available options are:\
-  -e chunk\tExecute string 'chunk'.\
-  -o file \tSave bytecode to 'file'.\
-  -b      \tDump formatted bytecode.\
-  -p      \tPrint the parse tree.\
-  -t      \tPrint the transformed tree.\
-  -s      \tUse the Lua source generator backend.\
-  --      \tStop handling options."
-local function runopt(args)
-   if #args == 0 then
-      print(string.format(usage, arg[0]))
-      os.exit()
-   end
-
-   local opts = { }
-   local i = 0
-   repeat
-      i = i + 1
-      local a = args[i]
-      if a == "-e" then
-         i = i + 1
-         opts['-e'] = args[i]
-      elseif a == "-o" then
-         i = i + 1
-         opts['-o'] = args[i]
-      elseif a == "-h" or a == "-?" then
-         print(string.format(usage, arg[0]))
-         os.exit()
-      elseif string.sub(a, 1, 1) == '-' then
-         opts[a] = true
-      else
-         opts[#opts + 1] = a
-      end
-   until i == #args
-
-   args = { [0] = args[0], unpack(opts, 2) }
-   local code, name
-   if opts['-e'] then
-      code = opts['-e']
-      name = code
-   elseif opts['--'] then
-      code = io.stdin:read('*a')
-   else
-      if not opts[1] then
-         error("no chunk or script file provided")
-      end
-      name = opts[1]
-      local file = assert(io.open(opts[1], 'r'))
-      code = file:read('*a')
-      file:close()
-   end
-   local main = compiler.compile(code, name, opts)
-   if not (opts['-b'] or opts['-o']) then
-      main(name, unpack(args))
-   end
-end
-
-local predef = {
+local __magic__ = {
    try    = try;
    Array  = Array;
    Error  = Error;
@@ -921,7 +829,7 @@ local predef = {
    class  = class;
    module = module;
    import = import;
-   yield  = yield;
+   __yield__ = coroutine.yield;
    throw  = error;
    grammar = grammar;
    __rule__ = rule;
@@ -941,12 +849,20 @@ local predef = {
    ApplyPattern = ApplyPattern;
 }
 
-export.run = run
-export.runopt = runopt
-export.predef = predef
+_G.__magic__ = __magic__
+export.__magic__ = __magic__
+package.loaded["nyanga.core"] = export
 
-system = require('system.nga')
-package.loaded['@system'] = system
+local system = require("nyanga.core.system")
+
+function __magic__.__yield__(...)
+   local coro, main = coroutine.running()
+   if main then
+      return system.schedule(...)
+   else
+      return coroutine.yield(...)
+   end
+end
 
 return export
 

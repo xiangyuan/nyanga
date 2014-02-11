@@ -3,12 +3,10 @@ Copyright (C) 2013-2014 Richard Hundt and contributors.
 See Copyright Notice in nyanga
 ]=]
 
-print("COMPILER!")
-
-local parser      = require('nyanga.parser')
-local transformer = require('nyanga.transformer')
-local generator   = require('nyanga.generator')
-local util        = require('nyanga.util')
+local parser      = require('nyanga.lang.parser')
+local transformer = require('nyanga.lang.transformer')
+local generator   = require('nyanga.lang.generator')
+local util        = require('nyanga.lang.util')
 
 local function compile(src, name, opts)
    local srctree = parser.parse(src, name)
@@ -17,22 +15,16 @@ local function compile(src, name, opts)
       print("AST:", util.dump(srctree))
    end
 
-   local dsttree = transformer.transform(srctree, src, name)
+   local dsttree = transformer.transform(srctree, src, name, opts)
 
    if opts and opts['-t'] then
       print("DST:", util.dump(dsttree))
    end
 
-   local luacode
-   if opts and opts['-s'] then
-      luacode = generator.source(dsttree, name)
-      print(luacode)
-   else
-      luacode = generator.bytecode(dsttree, '@'..name)
-   end
+   local luacode = generator.generate(dsttree, '@'..name, opts)
 
    if opts and opts['-o'] then
-      local outfile = io.open(opts['-o'], "w+")
+      local outfile = assert(io.open(opts['-o'], "w+"))
       outfile:write(luacode)
       outfile:close()
    end
@@ -47,5 +39,6 @@ local function compile(src, name, opts)
 end
 
 return {
-   compile = compile
+   compile = compile;
 }
+

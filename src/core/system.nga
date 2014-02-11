@@ -1,0 +1,48 @@
+
+import IOLoop from "nyanga.core.loop"
+import Scheduler, Fiber from "nyanga.core.fiber"
+
+local coro_idle, loop_idle
+
+loop_idle = IOLoop.idle =>
+   Scheduler.stop()
+end
+
+loop_idle.start()
+
+coro_idle = Scheduler.idle =>
+   IOLoop.run_init()
+   while true do
+      IOLoop.run_once()
+      yield
+   end
+end
+coro_idle.ready()
+
+function async(body)
+   fiber = Fiber(body)
+   fiber.ready()
+   return fiber
+end
+
+function await(fiber)
+   if typeof fiber == "function" then
+      fiber = async fiber
+   end
+   fiber.ready()
+   return fiber.join()
+end
+
+function sleep(msec)
+   co = coroutine::running()
+   tm = IOLoop.timer msec, 1, Fiber::rouse()
+   tm.start()
+   Fiber::await()
+end
+
+function schedule()
+   Scheduler.run()
+end
+
+export Fiber, schedule, sleep, async, await
+
