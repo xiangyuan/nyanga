@@ -31,13 +31,13 @@ class Socket
          self._ioerrors = Semaphore(0)
 
          self._poller = Poller self.so_fd, 0, (poll, evts) =>
-            if (evts & C.ZMQ_POLLERR) > 0 then
+            if (evts & (C.POLLERR | C.POLLHUP)) > 0 then
                self._ioerrors.up()
             end
-            if (evts & C.ZMQ_POLLIN) > 0 then
+            if (evts & C.POLLIN) > 0 then
                self._readable.up()
             end
-            if (evts & C.ZMQ_POLLOUT) > 0 then
+            if (evts & C.POLLOUT) > 0 then
                self._writable.up()
             end
          end
@@ -101,7 +101,7 @@ class Socket
    end
 
    get readable()
-      self.poller.modify C.ZMQ_POLLIN | C.ZMQ_POLLERR
+      self.poller.modify "re"
       self.poller.start()
       self._readable.down()
       if self._ioerrors.count > 0 then
@@ -113,7 +113,7 @@ class Socket
    end
 
    get writable()
-      self.poller.modify C.ZMQ_POLLOUT | C.ZMQ_POLLERR
+      self.poller.modify "we"
       self.poller.start()
       self._writable.down()
       if self._ioerrors.count > 0 then

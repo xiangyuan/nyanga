@@ -40,12 +40,9 @@ endif
 LPEG := ${DEPDIR}/lpeg/lpeg.so
 
 DEPS := ${BUILD}/deps/liblpeg.a \
-	${BUILD}/deps/libzmq.a \
-	${BUILD}/deps/libczmq.a \
 	${BUILD}/deps/libluajit.a
 
 CORE := ${BUILD}/core/init.o \
-	${BUILD}/core/zmq.o \
 	${BUILD}/core/queue.o \
 	${BUILD}/core/fiber.o \
 	${BUILD}/core/loop.o \
@@ -55,7 +52,6 @@ CORE := ${BUILD}/core/init.o \
 	${BUILD}/core/ffi_osx.o \
 	${BUILD}/core/ffi_linux.o \
 	${BUILD}/core/ffi_bsd.o \
-	${BUILD}/core/ffi_zmq.o
 
 LIBS := ${BUILD}/nyanga.so
 
@@ -114,9 +110,6 @@ ${BUILD}/core.a: ${CORE}
 ${BUILD}/core/init.o:
 	${LJC} -n "nyanga.core" src/core/init.lua ${BUILD}/core/init.o
 
-${BUILD}/core/zmq.o:
-	${NGC} -n "nyanga.core.zmq" src/core/zmq.nga ${BUILD}/core/zmq.o
-
 ${BUILD}/core/queue.o:
 	${NGC} -n "nyanga.core.queue" src/core/queue.nga ${BUILD}/core/queue.o
 
@@ -144,19 +137,8 @@ ${BUILD}/core/ffi_linux.o:
 ${BUILD}/core/ffi_bsd.o:
 	${NGC} -n "nyanga.core.ffi.bsd" src/core/ffi/bsd.nga ${BUILD}/core/ffi_bsd.o
 
-${BUILD}/core/ffi_zmq.o:
-	${NGC} -n "nyanga.core.ffi.zmq" src/core/ffi/zmq.nga ${BUILD}/core/ffi_zmq.o
-
 ${BUILD}/deps/liblpeg.a: ${LPEG}
 	ar rcus ${BUILD}/deps/liblpeg.a ${DEPDIR}/lpeg/*.o
-
-${BUILD}/deps/libczmq.a: ${BUILD}/deps/libzmq.a
-	cd ${DEPDIR}/czmq && ./configure --with-libzmq=${BUILD}/deps --prefix=${BUILD}/deps && make && make install
-	cp ${BUILD}/deps/lib/libczmq.a ${BUILD}/deps
-
-${BUILD}/deps/libzmq.a:
-	cd ${DEPDIR}/zeromq && ./configure --prefix=${BUILD}/deps && make && make install
-	cp ${BUILD}/deps/lib/libzmq.a ${BUILD}/deps
 
 ${BUILD}/deps/libluajit.a: ${LJ}
 	cp ${LUADIR}/libluajit.a ${BUILD}/deps/libluajit.a
@@ -193,8 +175,6 @@ uninstall:
 realclean: clean
 	make -C ${DEPDIR}/luajit clean
 	make -C ${DEPDIR}/lpeg clean
-	make -C ${DEPDIR}/czmq clean
-	make -C ${DEPDIR}/zeromq clean
 	rm -rf ${BUILD}
 
 bootstrap: ${LJ} ${LPEG}

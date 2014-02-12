@@ -1,6 +1,6 @@
-import Queue from "nyanga.core.queue"
+require("nyanga.core.ffi")
 
-import ZMQSocket, ZMQPollItem from "nyanga.core.zmq"
+import Queue from "nyanga.core.queue"
 
 local ffi = require('ffi')
 local C   = ffi.C
@@ -39,10 +39,30 @@ class Idle
 end
 
 class Poller
+
+   function evbits(events)
+      local evbits = 0
+      if typeof events == 'string' then
+         evbits = 0
+         if events.find 'r' then
+            evbits |= (C.POLLIN | C.POLLPRI)
+         end
+         if events.find 'w' then
+            evbits |= C.POLLOUT
+         end
+         if events.find 'e' then
+            evbits |= (C.POLLRDBAND | C.POLLPRI)
+         end
+      else
+         evbits = events
+      end
+      return evbits
+   end
+
    self(fd, events, react)
       self.fd     = fd
       self.react  = react
-      self.events = events
+      self.events = evbits(events)
    end
    start(loop = IOLoop)
       loop.add_poller(self)
@@ -51,19 +71,7 @@ class Poller
       loop.del_poller(self)
    end
    modify(events, loop = IOLoop)
-      if typeof events == 'string' then
-         evbits = 0
-         if events.find 'r' then
-            evbits |= C.ZMQ_POLLIN
-         end
-         if events.find 'w' then
-            evbits |= C.ZMQ_POLLOUT
-         end
-         if events.find 'e' then
-            evbits |= C.ZMQ_POLLERR
-         end
-         events = evbits
-      end
+      events = evbits(events)
       if events != self.events then
          self.events = events
          self.dirty  = true
@@ -78,7 +86,7 @@ module IOLoop
    pollers = Queue()
 
    poll_max = 128
-   poll_set = ffi::new('zmq_pollitem_t[?]', 128)
+   poll_set = ffi::new('struct pollfd[?]', 128)
    poll_dur = -1
 
    timer(delay, times = 0, react, data)
@@ -127,8 +135,10 @@ module IOLoop
       poller.active = false
    end
 
+   now = ffi::new("struct timeval")
    function gettime()
-      return tonumber(C::zclock_time())
+      C::gettimeofday(now, nil)
+      return tonumber(now.tv_sec * 1000 + now.tv_usec / 1000)
    end
 
     _running = false
@@ -166,7 +176,7 @@ module IOLoop
    end
 
    run_once()
-      if C.zctx_interrupted != 0 then
+      if not _running then
          self.stop()
          return self.count() > 0
       end
@@ -194,18 +204,13 @@ module IOLoop
 
       -- check poll set
       if poll_set == nil then
-         poll_set = ffi::new("zmq_pollitem_t[?]", poll_max)
+         poll_set = ffi::new("struct pollfd[?]", poll_max)
       end
 
       i = 0
       pollers.each (poller) =>
          if poller.active then
-            fd = poller.fd
-            if fd is ZMQSocket then
-               poll_set[i].socket = fd
-            else
-               poll_set[i].fd = fd
-            end
+            poll_set[i].fd = poller.fd
             poll_set[i].events = poller.events
             i += 1
          else
@@ -229,7 +234,7 @@ module IOLoop
       end
 
       -- poll
-      rv = C::zmq_poll(poll_set, pollers.count(), poll_dur)
+      rv = C::poll(poll_set, pollers.count(), poll_dur)
 
       -- enqueue expired timers
       tloop = gettime()
