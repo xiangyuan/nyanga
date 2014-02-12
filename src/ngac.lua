@@ -101,24 +101,27 @@ local function runopt(args)
       os.exit(0)
    end
 
-   if #opts ~= 2 then
-      io.stderr:write(string.format(usage, arg[0]))
-      os.exit(1)
-   end
-
    local luacode
-   if opts['-t'] == 'lua' or string.sub(dest, -4) == '.lua' then
+   if opts['-t'] == 'lua' or (dest and string.sub(dest, -4) == 'lua') then
       luacode = gensource.generate(dsttree, '@'..name, opts)
-      local file = io.open(dest, 'w+')
-      file:write(luacode)
-      file:close()
-      os.exit(0)
    else
       luacode = generator.generate(dsttree, '@'..name, opts)
    end
 
    if opts['-b'] then
       bcsave.start('-l', '-e', luacode)
+      os.exit(0)
+   end
+
+   if #opts ~= 2 then
+      io.stderr:write(string.format(usage, arg[0]))
+      os.exit(1)
+   end
+
+   if opts['-t'] == 'lua' or string.sub(dest, -4) == '.lua' then
+      local file = io.open(dest, 'w+')
+      file:write(luacode)
+      file:close()
       os.exit(0)
    end
 

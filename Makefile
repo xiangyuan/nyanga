@@ -5,8 +5,11 @@ LIBDIR =./lib
 CURDIR = $(shell pwd)
 DEPDIR = ${CURDIR}/deps
 BUILD  = ${CURDIR}/build
+LUADIR = ${DEPDIR}/luajit/src
 
-LJ = ${DEPDIR}/luajit/src/luajit
+export LUA_PATH = ${LUADIR}/?.lua;;
+
+LJ = ${LUADIR}/luajit
 LJC = ${LJ} -b -g
 NGC = boot/bin/ngac
 
@@ -54,18 +57,6 @@ CORE := ${BUILD}/core/init.o \
 	${BUILD}/core/ffi_bsd.o \
 	${BUILD}/core/ffi_zmq.o
 
-LANG := ${BUILD}/lang/builder.o \
-	${BUILD}/lang/bytecode.o \
-	${BUILD}/lang/generator.o \
-	${BUILD}/lang/init.o \
-	${BUILD}/lang/tree.o \
-	${BUILD}/lang/parser.o \
-	${BUILD}/lang/re.o \
-	${BUILD}/lang/syntax.o \
-	${BUILD}/lang/transformer.o \
-	${BUILD}/lang/util.o
-
-
 LIBS := ${BUILD}/nyanga.so
 
 EXEC := ${BUILD}/nyanga
@@ -84,13 +75,13 @@ dirs:
 	mkdir -p ${BUILD}/core
 
 ${BUILD}/nyanga: ${LJ} ${XDEPS}
-	${CC} ${CFLAGS} -I${DEPDIR}/luajit/src -L${DEPDIR}/luajit/src -o ${BUILD}/nyanga src/nyanga.c ${XDEPS} ${LDFLAGS}
+	${CC} ${CFLAGS} -I${LUADIR} -L${LUADIR} -o ${BUILD}/nyanga src/nyanga.c ${XDEPS} ${LDFLAGS}
 
 ${BUILD}/nyanga.so: ${BUILD}/deps/liblpeg.a ${BUILD}/lang.a ${BUILD}/core.a ${BUILD}/main.o
 	${CC} ${SOFLAGS} -o ${BUILD}/nyanga.so ${LDFLAGS} ${BUILD}/main.o ${BUILD}/deps/liblpeg.a ${BUILD}/lang.a ${BUILD}/core.a
 
 ${BUILD}/nyangac: ${LJ} ${CDEPS}
-	${CC} ${CFLAGS} -I${DEPDIR}/luajit/src -L${DEPDIR}/luajit/src -o ${BUILD}/nyangac src/nyangac.c ${CDEPS} ${LDFLAGS}
+	${CC} ${CFLAGS} -I${LUADIR} -L${LUADIR} -o ${BUILD}/nyangac src/nyangac.c ${CDEPS} ${LDFLAGS}
 
 ${BUILD}/lang.a: ${LJ}
 	mkdir -p ${BUILD}/lang
@@ -106,6 +97,9 @@ ${BUILD}/lang.a: ${LJ}
 	${LJC} -n "nyanga.lang.util" src/lang/util.lua ${BUILD}/lang/util.o
 	${LJC} -n "nyanga.lang.generator" src/lang/generator.lua ${BUILD}/lang/generator.o
 	${LJC} -n "nyanga.lang.gensource" src/lang/gensource.lua ${BUILD}/lang/gensource.o
+	${LJC} -n "jit.bc" ${LUADIR}/jit/bc.lua ${BUILD}/lang/bc.o
+	${LJC} -n "jit.vmdef" ${LUADIR}/jit/vmdef.lua ${BUILD}/lang/jit_vmdef.o
+	${LJC} -n "jit.bcsave" ${LUADIR}/jit/bcsave.lua ${BUILD}/lang/jit_bcsave.o
 	ar rcus ${BUILD}/lang.a ${BUILD}/lang/*.o
 
 ${BUILD}/main.o:
@@ -165,11 +159,11 @@ ${BUILD}/deps/libzmq.a:
 	cp ${BUILD}/deps/lib/libzmq.a ${BUILD}/deps
 
 ${BUILD}/deps/libluajit.a: ${LJ}
-	cp ${DEPDIR}/luajit/src/libluajit.a ${BUILD}/deps/libluajit.a
+	cp ${LUADIR}/libluajit.a ${BUILD}/deps/libluajit.a
 
 ${LJ}:
 	git submodule update --init ${DEPDIR}/luajit
-	${MAKE} PREFIX=${PREFIX} XCFLAGS="-DLUAJIT_ENABLE_LUA52COMPAT" -C ${DEPDIR}/luajit
+	${MAKE} PREFIX=${BUILD} XCFLAGS="-DLUAJIT_ENABLE_LUA52COMPAT" -C ${DEPDIR}/luajit
 
 ${LPEG}:
 	make -C ${DEPDIR}/lpeg ${LPEG_BUILD}
