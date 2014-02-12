@@ -31,16 +31,19 @@ Available options are:\
   -t type \tOutput file format.\
   -b      \tList formatted bytecode.\
   -n name \tProvide a chunk name.\
+  -g      \tKeep debug info.\
   -p      \tPrint the parse tree.\
   -l      \tPrint the lua tree.\
 "
 
-local function runopt(args)
+local function runopt(...)
    local util        = require('nyanga.lang.util')
    local parser      = require('nyanga.lang.parser')
    local transformer = require('nyanga.lang.transformer')
    local generator   = require('nyanga.lang.generator')
    local gensource   = require('nyanga.lang.gensource')
+
+   local args = { ... }
 
    if #args == 0 then
       print(string.format(usage, arg[0]))
@@ -102,7 +105,7 @@ local function runopt(args)
    end
 
    local luacode
-   if opts['-t'] == 'lua' or (dest and string.sub(dest, -4) == 'lua') then
+   if opts['-t'] == 'lua' or (dest and string.sub(dest, -4) == '.lua') then
       luacode = gensource.generate(dsttree, '@'..name, opts)
    else
       luacode = generator.generate(dsttree, '@'..name, opts)
@@ -134,6 +137,9 @@ local function runopt(args)
       args[#args + 1] = '-t'
       args[#args + 1] = opts['-t']
    end
+   if opts['-g'] then
+      args[#args + 1] = '-g'
+   end
    args[#args + 1] = '-e'
    args[#args + 1] = luacode
    args[#args + 1] = dest
@@ -141,5 +147,7 @@ local function runopt(args)
    bcsave.start(unpack(args))
 end
 
-runopt(arg)
+return {
+   start = runopt
+}
 

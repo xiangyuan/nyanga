@@ -59,9 +59,11 @@ EXEC := ${BUILD}/nyanga
 
 NGAC := ${BUILD}/nyangac
 
-XDEPS = ${DEPS} ${BUILD}/lang.a ${BUILD}/core.a ${BUILD}/main.o
+XDEPS = ${DEPS} ${BUILD}/lang.a ${BUILD}/core.a ${BUILD}/main.o ${BUILD}/ngac.o
 
 CDEPS = ${BUILD}/deps/liblpeg.a ${BUILD}/deps/libluajit.a ${BUILD}/lang.a ${BUILD}/ngac.o
+
+LDEPS = ${BUILD}/deps/liblpeg.a ${BUILD}/lang.a ${BUILD}/core.a ${BUILD}/main.o ${BUILD}/ngac.o
 
 all: dirs ${LJ} ${LPEG} ${LIBS} ${EXEC} ${NGAC}
 
@@ -73,8 +75,8 @@ dirs:
 ${BUILD}/nyanga: ${LJ} ${XDEPS}
 	${CC} ${CFLAGS} -I${LUADIR} -L${LUADIR} -o ${BUILD}/nyanga src/nyanga.c ${XDEPS} ${LDFLAGS}
 
-${BUILD}/nyanga.so: ${BUILD}/deps/liblpeg.a ${BUILD}/lang.a ${BUILD}/core.a ${BUILD}/main.o
-	${CC} ${SOFLAGS} -o ${BUILD}/nyanga.so ${LDFLAGS} ${BUILD}/main.o ${BUILD}/deps/liblpeg.a ${BUILD}/lang.a ${BUILD}/core.a
+${BUILD}/nyanga.so: ${LDEPS}
+	${CC} ${SOFLAGS} -o ${BUILD}/nyanga.so ${LDFLAGS} ${LDEPS}
 
 ${BUILD}/nyangac: ${LJ} ${CDEPS}
 	${CC} ${CFLAGS} -I${LUADIR} -L${LUADIR} -o ${BUILD}/nyangac src/nyangac.c ${CDEPS} ${LDFLAGS}
@@ -98,7 +100,7 @@ ${BUILD}/lang.a: ${LJ}
 	${LJC} -n "jit.bcsave" ${LUADIR}/jit/bcsave.lua ${BUILD}/lang/jit_bcsave.o
 	ar rcus ${BUILD}/lang.a ${BUILD}/lang/*.o
 
-${BUILD}/main.o:
+${BUILD}/main.o: ${BUILD}/ngac.o
 	${LJC} -n "nyanga" src/main.lua ${BUILD}/main.o
 
 ${BUILD}/ngac.o:

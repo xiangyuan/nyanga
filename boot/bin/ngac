@@ -3,5 +3,5 @@
 package.path  = ';;./boot/src/?.raw;'..package.path
 package.cpath = ';;./boot/lib/?.so;'..package.cpath
 
-require("ngac")
+require("ngac").start(unpack(arg))
 

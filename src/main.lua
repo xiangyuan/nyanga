@@ -44,39 +44,39 @@ local function runopt(args)
       os.exit()
    end
 
+   local args = { unpack(args) }
    local opts = { }
-   local copt = { }
-   local i = 0
    repeat
-      i = i + 1
-      local a = args[i]
+      local a = table.remove(args, 1)
       if a == "-e" then
-         i = i + 1
-         opts['-e'] = args[i]
+         opts['-e'] = table.remove(args, 1)
       elseif a == "-c" then
-         error("NYI")
          opts['-c'] = true
-         for j=1, #args do
-            copt[#copt + 1] = args[j]
-         end
+         -- pass remaining args to compiler
          break
       elseif a == "-h" or a == "-?" then
          print(string.format(usage, arg[0]))
          os.exit()
       elseif string.sub(a, 1, 1) == '-' then
          opts[a] = true
-      else
+      elseif #opts == 0 and not opts['-e'] then
+         -- the file to run
          opts[#opts + 1] = a
+      else
+         -- pass remaining args to script
+         break
       end
-   until i == #args
+   until #args == 0
 
-   args = { [0] = args[0], unpack(opts, 2) }
    local code, name
    if opts['-e'] then
       code = opts['-e']
       name = code
    elseif opts['--'] then
       code = io.stdin:read('*a')
+   elseif opts['-c'] then
+      require("nyangac").start(unpack(args))
+      os.exit(0)
    else
       if not opts[1] then
          error("no chunk or script file provided")
@@ -87,10 +87,13 @@ local function runopt(args)
       file:close()
    end
 
-   local main = assert(loader.loadchunk(code, name))
-   if not (opts['-b'] or opts['-c']) then
-      main(name, unpack(args))
+   local main
+   if string.sub(name, -4) == '.lua' then
+      main = loadstring(code, '@'..name)
+   else
+      main = assert(loader.loadchunk(code, name))
    end
+   main(name, unpack(args))
 end
 
 runopt(arg)
