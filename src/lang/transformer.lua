@@ -460,7 +460,7 @@ end
 function match:ReturnStatement(node)
    if self.retsig then
       return B.doStatement(
-         B.fragment{
+         B.blockStatement{
             B.assignmentExpression(
                { self.retsig }, { B.literal(true) }
             );
