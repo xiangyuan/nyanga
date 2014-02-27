@@ -41,7 +41,10 @@ int main(int argc, char *argv[]) {
     luaL_openlibs(L);
     luaopen_lpeg(L);
 
-    lua_createtable(L, argc, 0);
+    lua_createtable(L, argc + 1, 0);
+    lua_pushstring(L, "nyangac");
+    lua_rawseti(L, -2, 0);
+
     for (i = 0; i < argc; i++) {
         lua_pushstring(L, argv[i]);
         lua_rawseti(L, -2, i);
@@ -58,6 +61,9 @@ int main(int argc, char *argv[]) {
       lua_close(L);
       return 1;
     }
+
+    lua_getfield(L, -1, "start");
+    lua_call(L, 0, 0);
 
     lua_close(L);
     return 0;

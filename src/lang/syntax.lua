@@ -571,6 +571,7 @@ local function validate(meta, node)
       else
          local ok, er = validate_any(spec, prop)
          if not ok then
+            print(util.dump(node))
             error(er.." for "..(node.kind or "?").."."..name)
          end
       end

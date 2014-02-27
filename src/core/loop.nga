@@ -5,10 +5,49 @@ import Queue from "nyanga.core.queue"
 local ffi = require('ffi')
 local C   = ffi.C
 
+ffi::cdef"
+   static const int UPOLL_CTL_ADD = 1;
+   static const int UPOLL_CTL_DEL = 2;
+   static const int UPOLL_CTL_MOD = 3;
+
+   static const int UPOLLIN  = 0x01;
+   static const int UPOLLOUT = 0x02;
+   static const int UPOLLET  = 0x04;
+   static const int UPOLLERR = 0x08;
+
+   typedef struct upoll_ upoll_t;
+
+   typedef union upoll_data {
+     void      *ptr;
+     intptr_t  fd;
+     uint32_t  u32;
+     uint64_t  u64;
+   } upoll_data_t;
+
+   typedef struct upoll_event {
+     uint32_t      events;
+     upoll_data_t  data;
+   } upoll_event_t;
+
+   upoll_t* upoll_create(uint32_t size);
+   int upoll_ctl(upoll_t* upq, int op, intptr_t fd, upoll_event_t *event);
+   int upoll_wait(upoll_t* upq, upoll_event_t *events, int maxevents, int timeout);
+   void upoll_destroy(upoll_t* upq);
+
+   intptr_t usocket(int domain, int type, int proto);
+   intptr_t uaccept(intptr_t sock);
+
+   int ubind(intptr_t sock, const char* name, const char* serv);
+   int ulisten(intptr_t sock, int backlog);
+   int uconnect(intptr_t sock, const char* name, const char* serv);
+   int uclose(intptr_t sock);
+   int uread(intptr_t fd, char* buf, size_t len);
+   int uwrite(intptr_t fd, const char* buf, size_t len);
+"
+
 function strerror(errno)
    return ffi::string(C::strerror(errno))
 end
-
 
 class Timer
    self(delay, times = 0, react, data)
@@ -39,19 +78,15 @@ class Idle
 end
 
 class Poller
-
    function evbits(events)
       local evbits = 0
-      if typeof events == 'string' then
+      if typeof(events) == 'string' then
          evbits = 0
          if events.find 'r' then
-            evbits |= (C.POLLIN | C.POLLPRI)
+            evbits |= C.UPOLLIN
          end
          if events.find 'w' then
-            evbits |= C.POLLOUT
-         end
-         if events.find 'e' then
-            evbits |= (C.POLLRDBAND | C.POLLPRI)
+            evbits |= C.UPOLLOUT
          end
       else
          evbits = events
@@ -60,9 +95,10 @@ class Poller
    end
 
    self(fd, events, react)
-      self.fd     = fd
-      self.react  = react
-      self.events = evbits(events)
+      self.fd    = fd
+      self.react = react
+      self.event = ffi::new('upoll_event_t')
+      self.event.events = evbits(events)
    end
    start(loop = IOLoop)
       loop.add_poller(self)
@@ -71,23 +107,23 @@ class Poller
       loop.del_poller(self)
    end
    modify(events, loop = IOLoop)
-      events = evbits(events)
-      if events != self.events then
-         self.events = events
-         self.dirty  = true
-      end
+      self.event.events = evbits(events)
+      loop.mod_poller(self)
    end
 end
 
 module IOLoop
 
+   upoll = C::upoll_create(1024)
+
    timers  = Queue()
    idles   = Queue()
-   pollers = Queue()
+   pollers = { }
 
    poll_max = 128
-   poll_set = ffi::new('struct pollfd[?]', 128)
+   poll_evt = ffi::new('upoll_event_t[?]', 128)
    poll_dur = -1
+   poll_cnt = 0
 
    timer(delay, times = 0, react, data)
       return Timer(delay, times, react, data)
@@ -121,18 +157,26 @@ module IOLoop
       return Poller(fd, events, react)
    end
    add_poller(poller)
-      if not poller.queued then
-         poller.queued = true
-         pollers.enqueue(poller)
-         if pollers.count() > poll_max then
+      if not poller.index then
+         poller.index = #pollers + 1
+         pollers[poller.index] = poller
+         poller.event.data.fd = poller.index
+         C::upoll_ctl(upoll, C.UPOLL_CTL_ADD, poller.fd, poller.event)
+         poll_cnt += 1
+         if poll_cnt > poll_max then
             poll_max *= 2
-            poll_set = nil
+            poll_evt = nil
          end
       end
-      poller.active = true
    end
    del_poller(poller)
-      poller.active = false
+      C::upoll_ctl(upoll, C.UPOLL_CTL_DEL, poller.fd, nil)
+      table::remove(pollers, poller.index)
+      poller.index = nil
+      poll_cnt -= 1
+   end
+   mod_poller(poller)
+      C::upoll_ctl(upoll, C.UPOLL_CTL_MOD, poller.fd, poller.event)
    end
 
    now = ffi::new("struct timeval")
@@ -172,7 +216,7 @@ module IOLoop
    end
 
    count()
-      return timers.count() + pollers.count()
+      return timers.count() + poll_cnt
    end
 
    run_once()
@@ -203,20 +247,8 @@ module IOLoop
       end
 
       -- check poll set
-      if poll_set == nil then
-         poll_set = ffi::new("struct pollfd[?]", poll_max)
-      end
-
-      i = 0
-      pollers.each (poller) =>
-         if poller.active then
-            poll_set[i].fd = poller.fd
-            poll_set[i].events = poller.events
-            i += 1
-         else
-            poller.queued = false
-            return false
-         end
+      if poll_evt == nil then
+         poll_evt = ffi::new("upoll_event_t[?]", poll_max)
       end
 
       if self.count() == 0 then
@@ -234,7 +266,7 @@ module IOLoop
       end
 
       -- poll
-      rv = C::poll(poll_set, pollers.count(), poll_dur)
+      rv = C::upoll_wait(upoll, poll_evt, poll_max, poll_dur)
 
       -- enqueue expired timers
       tloop = gettime()
@@ -252,13 +284,10 @@ module IOLoop
 
       -- enqueue poll handlers
       if rv > 0 then
-         i = 0
-         pfds = poll_set -- a handler might modify this
-         pollers.each (poller) =>
-            if pfds[i].revents > 0 then
-               poller.react(pfds[i].revents)
-            end
-            i += 1
+         for i = 0, rv - 1 do
+            events = poll_evt[i].events
+            poller = pollers[tonumber(poll_evt[i].data.fd)]
+            poller.react(events)
          end
       elseif rv < 0 then
          errno = ffi::errno()

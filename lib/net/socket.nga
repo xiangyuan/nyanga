@@ -31,13 +31,13 @@ class Socket
          self._ioerrors = Semaphore(0)
 
          self._poller = Poller self.so_fd, 0, (poll, evts) =>
-            if (evts & (C.POLLERR | C.POLLHUP)) > 0 then
+            if (evts & C.UPOLLERR) > 0 then
                self._ioerrors.up()
             end
-            if (evts & C.POLLIN) > 0 then
+            if (evts & C.UPOLLIN) > 0 then
                self._readable.up()
             end
-            if (evts & C.POLLOUT) > 0 then
+            if (evts & C.UPOLLOUT) > 0 then
                self._writable.up()
             end
          end
@@ -101,7 +101,7 @@ class Socket
    end
 
    get readable()
-      self.poller.modify "re"
+      self.poller.modify "r"
       self.poller.start()
       self._readable.down()
       if self._ioerrors.count > 0 then
@@ -113,7 +113,7 @@ class Socket
    end
 
    get writable()
-      self.poller.modify "we"
+      self.poller.modify "w"
       self.poller.start()
       self._writable.down()
       if self._ioerrors.count > 0 then
@@ -157,19 +157,27 @@ class TCPClient extends TCPSocket
 
    read(buf, len)
       if self.readable > 0 then
-         return C::read(self.so_fd, buf, len)
+         r = C::read(self.so_fd, buf, len)
+         if r == 0 then
+            self.poller.stop()
+         end
+         return r
       end
    end
    write(buf)
-      if typeof buf == 'cdata' then
+      if typeof(buf) == 'cdata' then
          buf = ffi::string(buf)
       else
          buf = tostring(buf)
       end
       while #buf > 0 do 
          if self.writable > 0 then
-            got = C::write(self.so_fd, buf, #buf)
-            buf = buf.sub(tonumber(got) + 1)
+            w = C::write(self.so_fd, buf, #buf)
+            if w == 0 then
+               self.poller.stop()
+               return w
+            end
+            buf = buf.sub(tonumber(w) + 1)
          else
             return -1
          end

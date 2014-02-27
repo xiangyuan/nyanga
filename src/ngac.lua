@@ -44,6 +44,9 @@ local function runopt(...)
    local gensource   = require('nyanga.lang.gensource')
 
    local args = { ... }
+   if #args == 0 then
+      args = arg
+   end
 
    if #args == 0 then
       print(string.format(usage, arg[0]))

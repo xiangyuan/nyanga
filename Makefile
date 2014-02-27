@@ -11,7 +11,7 @@ export LUA_PATH = ${LUADIR}/?.lua;;
 
 LJ = ${LUADIR}/luajit
 LJC = ${LJ} -b -g
-NGC = boot/bin/ngac
+NGC = boot/bin/ngac -g
 
 VERSION=0.1
 
@@ -25,7 +25,7 @@ MH_NAME=$(shell uname -m)
 ifeq (${OS_NAME}, Darwin)
 LPEG_BUILD=macosx
 LIBEXT=dylib
-LDFLAGS+=-lstdc++ -Wl,-all_load
+LDFLAGS+=-Wl,-all_load
 SOFLAGS+=-dynamic -bundle -undefined dynamic_lookup
 ifeq (${MH_NAME}, x86_64)
 CFLAGS+=-pagezero_size 10000 -image_base 100000000
@@ -33,7 +33,7 @@ endif
 else
 LPEG_BUILD=linux
 LIBEXT=so
-LDFLAGS+=-lstdc++ -Wl,--whole-archive -Wl,-E
+LDFLAGS+=-Wl,--whole-archive -Wl,-E
 SOFLAGS+=-shared -fPIC
 endif
 
@@ -51,7 +51,7 @@ CORE := ${BUILD}/core/init.o \
 	${BUILD}/core/ffi_posix.o \
 	${BUILD}/core/ffi_osx.o \
 	${BUILD}/core/ffi_linux.o \
-	${BUILD}/core/ffi_bsd.o \
+	${BUILD}/core/ffi_bsd.o
 
 LIBS := ${BUILD}/nyanga.so
 
@@ -59,11 +59,24 @@ EXEC := ${BUILD}/nyanga
 
 NGAC := ${BUILD}/nyangac
 
-XDEPS = ${DEPS} ${BUILD}/lang.a ${BUILD}/core.a ${BUILD}/main.o ${BUILD}/ngac.o
+XDEPS = ${DEPS} \
+	${BUILD}/lang.a \
+	${BUILD}/core.a \
+	${BUILD}/main.o \
+	${BUILD}/ngac.o \
+	${BUILD}/upoll.o
 
-CDEPS = ${BUILD}/deps/liblpeg.a ${BUILD}/deps/libluajit.a ${BUILD}/lang.a ${BUILD}/ngac.o
+CDEPS = ${BUILD}/deps/liblpeg.a \
+	${BUILD}/deps/libluajit.a \
+	${BUILD}/lang.a \
+	${BUILD}/ngac.o
 
-LDEPS = ${BUILD}/deps/liblpeg.a ${BUILD}/lang.a ${BUILD}/core.a ${BUILD}/main.o ${BUILD}/ngac.o
+LDEPS = ${BUILD}/deps/liblpeg.a \
+	${BUILD}/lang.a \
+	${BUILD}/core.a \
+	${BUILD}/main.o \
+	${BUILD}/ngac.o \
+	${BUILD}/upoll.o
 
 all: dirs ${LJ} ${LPEG} ${LIBS} ${EXEC} ${NGAC}
 
@@ -105,6 +118,10 @@ ${BUILD}/main.o: ${BUILD}/ngac.o
 
 ${BUILD}/ngac.o:
 	${LJC} -n "nyangac" src/ngac.lua ${BUILD}/ngac.o
+
+${BUILD}/upoll.o:
+	git submodule update --init ${DEPDIR}/upoll
+	${CC} -c -O2 ${DEPDIR}/upoll/src/upoll.c -o ${BUILD}/upoll.o -I${DEPDIR}/upoll/src/include -I${DEPDIR}/upoll/src
 
 ${BUILD}/core.a: ${CORE}
 	ar rcus ${BUILD}/core.a ${BUILD}/core/*.o

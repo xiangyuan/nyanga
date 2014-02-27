@@ -313,9 +313,6 @@ end
 function defs.returnStmt(args)
    return { type = "ReturnStatement", arguments = args, line = line }
 end
-function defs.yieldStmt(args)
-   return { type = "YieldStatement", arguments = args, line = line }
-end
 function defs.breakStmt()
    return { type = "BreakStatement", line = line }
 end
@@ -464,7 +461,6 @@ local op_info = {
    ["!_"]  = { 14, 'R' },
 
    ["not_"]    = { 14, 'R' },
-   ["typeof_"] = { 14, 'R' },
 
    ["**"]  = { 15, 'R' },
    ["#_"]  = { 16, 'R' },

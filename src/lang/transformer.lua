@@ -134,15 +134,18 @@ end
 
 local match = { }
 
-local globals = { 'Array', 'Error', 'Class', 'Module', '__magic__' }
+local globals = {
+   'Array', 'Error', 'Class', 'Module',
+   '__magic__', 'yield', 'typeof'
+}
 for k,v in pairs(_G) do
    globals[#globals + 1] = k
 end
 
 local magic = {
    'try', 'Array', 'Error', 'Module', 'Class', 'class',
-   'module', 'import', '__yield__', 'throw', 'grammar', '__rule__',
-   'include', '__range__', '__spread__', '__typeof__', '__match__',
+   'module', 'import', 'yield', 'throw', 'grammar', '__rule__',
+   'include', '__range__', '__spread__', 'typeof', '__match__',
    '__extract__', '__each__', '__var__', '__in__', '__is__', '__as__',
    'ArrayPattern', 'TablePattern', 'ApplyPattern'
 }
@@ -460,7 +463,7 @@ end
 function match:ReturnStatement(node)
    if self.retsig then
       return B.doStatement(
-         B.fragment{
+         B.blockStatement{
             B.assignmentExpression(
                { self.retsig }, { B.literal(true) }
             );
@@ -472,15 +475,6 @@ function match:ReturnStatement(node)
       )
    end
    return B.returnStatement(self:list(node.arguments))
-end
-
-function match:YieldStatement(node)
-   return B.expressionStatement(
-      B.callExpression(
-         B.identifier('__yield__'),
-         self:list(node.arguments)
-      )
-   )
 end
 
 function match:IfStatement(node)
@@ -685,18 +679,8 @@ function match:BinaryExpression(node)
 end
 function match:UnaryExpression(node)
    local o = node.operator
-   if o == 'yield' then
-      local a
-      if node.argument then
-         -- optional in yield expression - smells like a hack tbh
-         a = self:get(node.argument)
-      end
-      return B.callExpression(B.identifier('__yield__'), { a })
-   end
    local a = self:get(node.argument)
-   if o == 'typeof' then
-      return B.callExpression(B.identifier('__typeof__'), { a })
-   elseif o == '~' then
+   if o == '~' then
       local call = B.memberExpression(B.identifier('bit'), B.identifier('bnot'))
       return B.callExpression(call, { a })
    end
@@ -926,7 +910,13 @@ function match:BlockStatement(node)
    return B.blockStatement(self:list(node.body))
 end
 function match:ExpressionStatement(node)
-   return B.expressionStatement(self:get(node.expression))
+   local expr
+   if node.expression.type == 'Identifier' then
+      expr = B.callExpression(self:get(node.expression), { })
+   else
+      expr = self:get(node.expression)
+   end
+   return B.expressionStatement(expr)
 end
 function match:CallExpression(node)
    local callee = node.callee

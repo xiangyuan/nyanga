@@ -141,7 +141,7 @@ class Fiber
    static await()
       curr = Fiber.current()
       curr.pause()
-      yield
+      yield()
    end
 
    static idle(_, ...)
@@ -164,7 +164,7 @@ class Fiber
          self.on_complete (_, ...) =>
             curr.ready()
          end
-         yield
+         yield()
          return self.retv
       else
          if self.status() == "suspended" then
@@ -216,7 +216,7 @@ class Semaphore
       self.queue.enqueue(curr)
       while self.count < 1 do
          curr.pause()
-         yield
+         yield()
       end
       self.count -= 1
    end

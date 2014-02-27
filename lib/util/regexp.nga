@@ -28,7 +28,7 @@ class RegExp
          self.index = 0
       end
       local result = pcre::execute(self.pattern, self.input, self.index)
-      if typeof result == 'table' then
+      if typeof(result) == 'table' then
          self.index = self.index + #result[1] + 1
          return result
       elseif result == pcre.lib.PCRE_ERROR_NOMATCH then
@@ -40,7 +40,7 @@ class RegExp
 
    test(str)
       local result = pcre::execute(self.pattern, str)
-      if typeof result == 'table' then
+      if typeof(result) == 'table' then
          return true
       else
          return false

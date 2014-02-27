@@ -29,14 +29,17 @@ local patt = [=[
    digits   <- %digit (%digit / (&('_' %digit) '_') %digit)*
    word     <- (%alpha / "_") (%alnum / "_")*
 
+   reserved <- (
+      "local" / "function" / "nil" / "true" / "false" / "return" / "end"
+      / "break" / "goto" / "not" / "do" / "for" / "in" / "and" / "or"
+      / "while" / "repeat" / "until" / "if" / "elseif" / "else" / "then"
+   ) <idsafe>
+
    keyword  <- (
-      "local" / "function" / "class" / "module" / "static"
-      / "nil" / "true" / "false" / "return" / "end"
-      / "yield" / "break" / "continue" / "not" / "throw"
-      / "while" / "do" / "for" / "in" / "of" / "and" / "or"
-      / "super" / "import" / "export" / "try" / "catch" / "finally"
-      / "if" / "elseif" / "else" / "then" / "is" / "as" / "include"
-      / "repeat" / "until" / "grammar" / "rule" / "given" / "case"
+      <reserved> / "class" / "module" / "static"
+      / "continue" / "throw" / "of" / "super"
+      / "import" / "export" / "try" / "catch" / "finally"
+      / "is" / "as" / "include" / "grammar" / "given" / "case"
    ) <idsafe>
 
    sep <- <bcomment>? (<nl> / ";" / <lcomment>) / <ws> <sep>?
@@ -86,7 +89,7 @@ local patt = [=[
    do  <- "do"  <idsafe>
 
    export_stmt <- (
-      "export" <idsafe> s {| <name_list> |}
+      "export" <idsafe> s {| <ident_list> |}
    ) -> exportStmt
 
    import_stmt <- (
@@ -108,7 +111,6 @@ local patt = [=[
       / <throw_stmt>
       / <break_stmt>
       / <continue_stmt>
-      / <yield_stmt>
       / <given_stmt>
       / <expr_stmt>
    )) -> stmt
@@ -124,10 +126,6 @@ local patt = [=[
    continue_stmt <- (
       "continue" <idsafe>
    ) -> continueStmt
-
-   yield_stmt <- (
-      "yield" <idsafe> {| (hs <expr_list>)? |}
-   ) -> yieldStmt
 
    return_stmt <- (
       "return" <idsafe> {| (hs <expr_list>)? |}
@@ -209,13 +207,13 @@ local patt = [=[
    ) -> tablePatt
 
    table_patt_pair <- {|
-      ( {:name: <word> -> identifier :} / {:expr: "[" s <expr> s "]" :} ) s
+      ( {:name: <name> :} / {:expr: "[" s <expr> s "]" :} ) s
       "=" s {:value: <bind_left> :}
       / {:value: <bind_left> :}
    |}
 
    table_patt_pair_decl <- {|
-      ( {:name: <word> -> identifier :} / {:expr: "[" s <expr> s "]" :} ) s
+      ( {:name: <name> :} / {:expr: "[" s <expr> s "]" :} ) s
       "=" s {:value: <decl_left> :}
       / {:value: <decl_left> :}
    |}
@@ -241,7 +239,7 @@ local patt = [=[
       { "(" } s {| <decl_left> (s "," s <decl_left>)* |} s ")"
    |}
 
-   name_list <- (
+   ident_list <- (
       <ident> (s "," s <ident>)*
    )
 
@@ -361,7 +359,7 @@ local patt = [=[
    ) -> forStmt
 
    for_in_stmt <- (
-      "for" <idsafe> s {| <name_list> |} s <in> s <expr> s
+      "for" <idsafe> s {| <ident_list> |} s <in> s <expr> s
       <loop_body>
    ) -> forInStmt
 
@@ -379,6 +377,10 @@ local patt = [=[
 
    ident <- (
       !<keyword> { <word> }
+   ) -> identifier
+
+   name <- (
+      !<reserved> { <word> }
    ) -> identifier
 
    term <- ({} (
@@ -411,7 +413,7 @@ local patt = [=[
    ) -> superExpr
 
    expr_stmt <- (
-      {} (<assign_expr> / <update_expr> / <postfix_expr>)
+      {} (<assign_expr> / <update_expr> / <postfix_expr> / <ident>)
    ) -> exprStmt
 
    binop <- {
@@ -425,9 +427,8 @@ local patt = [=[
    ) -> infixExpr / <prefix_expr>
 
    prefix_expr <- (
-      { "#" / "-" !<number> / ("typeof" / "yield") <idsafe> } s <postfix_expr>
+      { "#" / "-" !('-' / <number>) <idsafe> } s <postfix_expr>
       / { "~" / "!" / "not" <idsafe> } s <prefix_expr>
-      / { "yield" <idsafe> !(s <postfix_expr>) }
    ) -> prefixExpr / <postfix_expr>
 
    postfix_expr <- {|
@@ -435,8 +436,8 @@ local patt = [=[
    |} -> postfixExpr / <term>
 
    postfix_tail <- {|
-        s { "." } s <ident>
-      / s { "::" } s (<ident> / %1 => error)
+        s { "." } s <name>
+      / s { "::" } s (<name> / %1 => error)
       / hs { "[" } s <expr> s ("]" / %1 => error)
       / { "(" } s {| <expr_list>? |} s (")" / %1 => error)
       / {~ (hs &['"[{] / HS) -> "(" ~} {| <spread_expr> / !<binop> <expr_list> |}
@@ -450,8 +451,8 @@ local patt = [=[
       <postfix_tail> <member_next> / <member_tail>
    )
    member_tail <- {|
-        s { "." } s <ident>
-      / s { "::" } s <ident>
+        s { "." } s <name>
+      / s { "::" } s <name>
       / s { "[" } s <expr> s ("]" / %1 => error)
    |}
 
@@ -482,7 +483,7 @@ local patt = [=[
       <table_entry> (<table_sep> s <table_entry>)* <table_sep>?
    )
    table_entry <- {|
-      ( {:name: <word> -> identifier :} / {:expr: "[" s <expr> s "]" :} ) s
+      ( {:name: <name> :} / {:expr: "[" s <expr> s "]" :} ) s
       "=" s {:value: <expr> :}
       / {:value: <expr> :}
    |} -> tableEntry
@@ -492,7 +493,7 @@ local patt = [=[
    ) -> compExpr
 
    comp_block <- (
-      "for" <idsafe> s {| <name_list> |} s <in> s <expr>
+      "for" <idsafe> s {| <ident_list> |} s <in> s <expr>
       (s "if" <idsafe> s <expr>)? s
    ) -> compBlock
 

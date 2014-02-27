@@ -14,7 +14,7 @@ coro_idle = Scheduler.idle =>
    IOLoop.run_init()
    while true do
       IOLoop.run_once()
-      yield
+      coroutine::yield()
    end
 end
 coro_idle.ready()
@@ -26,7 +26,7 @@ function async(body)
 end
 
 function await(fiber)
-   if typeof fiber == "function" then
+   if typeof(fiber) == "function" then
       fiber = async fiber
    end
    fiber.ready()

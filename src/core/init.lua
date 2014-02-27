@@ -10,6 +10,7 @@ table.insert(package.loaders, 1, loader)
 
 local ffi  = require('ffi')
 local lpeg = require('lpeg')
+local null = ffi.cast('void*', 0x0)
 
 local Class
 local Range
@@ -780,14 +781,14 @@ local __magic__ = {
    class  = class;
    module = module;
    import = import;
-   __yield__ = coroutine.yield;
+   yield = coroutine.yield;
    throw  = error;
    grammar = grammar;
    __rule__ = rule;
    include  = include;
    __range__  = range;
    __spread__ = spread;
-   __typeof__ = type;
+   typeof     = type;
    __match__  = __match__;
    __extract__ = extract;
    __each__   = each;
@@ -795,6 +796,7 @@ local __magic__ = {
    __in__  = __in__;
    __is__  = __is__;
    __as__  = setmetatable;
+   null    = null;
    ArrayPattern = ArrayPattern;
    TablePattern = TablePattern;
    ApplyPattern = ApplyPattern;
@@ -806,7 +808,7 @@ package.loaded["nyanga.core"] = export
 
 local async = require("nyanga.core.async")
 
-function __magic__.__yield__(...)
+function __magic__.yield(...)
    local coro, main = coroutine.running()
    if main then
       return async.schedule(...)
